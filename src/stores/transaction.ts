@@ -70,6 +70,7 @@ export interface TransactionListPartialFilter {
     accountIds?: string;
     tagFilter?: string;
     amountFilter?: string;
+    amountSortOrder?: string;
     keyword?: string;
 }
 
@@ -82,6 +83,7 @@ export interface TransactionListFilter extends TransactionListPartialFilter {
     accountIds: string;
     tagFilter: string;
     amountFilter: string;
+    amountSortOrder: string;
     keyword: string;
 }
 
@@ -123,6 +125,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
         accountIds: '',
         tagFilter: '',
         amountFilter: '',
+        amountSortOrder: '',
         keyword: ''
     });
 
@@ -712,6 +715,12 @@ export const useTransactionsStore = defineStore('transactions', () => {
         } else {
             transactionsFilter.value.keyword = '';
         }
+
+        if (filter && isString(filter.amountSortOrder)) {
+            transactionsFilter.value.amountSortOrder = filter.amountSortOrder;
+        } else {
+            transactionsFilter.value.amountSortOrder = '';
+        }
     }
 
     function updateTransactionListFilter(filter: TransactionListPartialFilter): boolean {
@@ -770,6 +779,11 @@ export const useTransactionsStore = defineStore('transactions', () => {
             changed = true;
         }
 
+        if (filter && isString(filter.amountSortOrder) && transactionsFilter.value.amountSortOrder !== filter.amountSortOrder) {
+            transactionsFilter.value.amountSortOrder = filter.amountSortOrder;
+            changed = true;
+        }
+
         return changed;
     }
 
@@ -805,6 +819,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
         if (transactionsFilter.value.amountFilter) {
             querys.push('amountFilter=' + encodeURIComponent(transactionsFilter.value.amountFilter));
+        }
+
+        if (transactionsFilter.value.amountSortOrder) {
+            querys.push('amountSortOrder=' + transactionsFilter.value.amountSortOrder);
         }
 
         if (transactionsFilter.value.keyword) {
@@ -850,6 +868,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 accountIds: transactionsFilter.value.accountIds,
                 tagFilter: transactionsFilter.value.tagFilter,
                 amountFilter: transactionsFilter.value.amountFilter,
+                amountSortOrder: transactionsFilter.value.amountSortOrder,
                 keyword: transactionsFilter.value.keyword
             }).then(response => {
                 const data = response.data;
@@ -929,6 +948,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 accountIds: transactionsFilter.value.accountIds,
                 tagFilter: transactionsFilter.value.tagFilter,
                 amountFilter: transactionsFilter.value.amountFilter,
+                amountSortOrder: transactionsFilter.value.amountSortOrder,
                 keyword: transactionsFilter.value.keyword,
                 mustHavePictures: !!mustHavePictures,
                 withPictures: !!withPictures

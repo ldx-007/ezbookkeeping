@@ -1580,6 +1580,8 @@
     "Not equal to": "Not equal to",
     "Between": "Between",
     "Not between": "Not between",
+    "Amount (Ascending)": "Amount (Ascending)",
+    "Amount (Descending)": "Amount (Descending)",
     "In": "In",
     "Not in": "Not in",
     "Has any": "Has any",
