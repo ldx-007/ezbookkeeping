@@ -337,7 +337,7 @@
                                                         @update:model-value="scrollAmountMenuToSelectedItem">
                                                     <template #activator="{ props }">
                                                         <div class="d-flex align-center cursor-pointer"
-                                                             :class="{ 'readonly': loading, 'text-primary': query.amountFilter }" v-bind="props">
+                                                             :class="{ 'readonly': loading, 'text-primary': query.amountFilter || query.amountSortOrder }" v-bind="props">
                                                             <span>{{ tt('Amount') }}</span>
                                                             <v-icon :icon="mdiMenuDown" />
                                                         </div>
@@ -380,6 +380,28 @@
                                                                 </v-list-item-title>
                                                             </v-list-item>
                                                         </template>
+                                                        <v-divider class="my-1"></v-divider>
+                                                        <v-list-subheader class="text-sm font-weight-bold">{{ tt('Sort') }}</v-list-subheader>
+                                                        <v-list-item class="text-sm" density="compact"
+                                                                     :class="{ 'list-item-selected': query.amountSortOrder === AmountSortOrderType.AmountAscending.type }"
+                                                                     :append-icon="(query.amountSortOrder === AmountSortOrderType.AmountAscending.type ? mdiCheck : undefined)">
+                                                            <v-list-item-title class="cursor-pointer"
+                                                                               @click="changeAmountSortOrder(AmountSortOrderType.AmountAscending.type)">
+                                                                <div class="d-flex align-center">
+                                                                    <span class="text-sm ms-3">{{ tt(AmountSortOrderType.AmountAscending.name) }}</span>
+                                                                </div>
+                                                            </v-list-item-title>
+                                                        </v-list-item>
+                                                        <v-list-item class="text-sm" density="compact"
+                                                                     :class="{ 'list-item-selected': query.amountSortOrder === AmountSortOrderType.AmountDescending.type }"
+                                                                     :append-icon="(query.amountSortOrder === AmountSortOrderType.AmountDescending.type ? mdiCheck : undefined)">
+                                                            <v-list-item-title class="cursor-pointer"
+                                                                               @click="changeAmountSortOrder(AmountSortOrderType.AmountDescending.type)">
+                                                                <div class="d-flex align-center">
+                                                                    <span class="text-sm ms-3">{{ tt(AmountSortOrderType.AmountDescending.name) }}</span>
+                                                                </div>
+                                                            </v-list-item-title>
+                                                        </v-list-item>
                                                     </v-list>
                                                 </v-menu>
                                             </th>
@@ -745,7 +767,7 @@ import {
     DateRangeScene,
     DateRange
 } from '@/core/datetime.ts';
-import { AmountFilterType } from '@/core/numeral.ts';
+import { AmountFilterType, AmountSortOrderType } from '@/core/numeral.ts';
 import { ThemeType } from '@/core/theme.ts';
 import { TransactionType } from '@/core/transaction.ts';
 import { TemplateType }  from '@/core/template.ts';
@@ -821,6 +843,7 @@ interface TransactionListProps {
     initAccountIds?: string,
     initTagFilter?: string,
     initAmountFilter?: string,
+    initAmountSortOrder?: string,
     initKeyword?: string,
     initMatchMode?: string
 }
@@ -1220,6 +1243,7 @@ function init(initProps: TransactionListProps): void {
         accountIds: initProps.initAccountIds,
         tagFilter: initProps.initTagFilter,
         amountFilter: initProps.initAmountFilter || '',
+        amountSortOrder: initProps.initAmountSortOrder || '',
         keyword: initProps.initKeyword || '',
         matchMode: initProps.initMatchMode && parseInt(initProps.initMatchMode) >= 0 ? parseInt(initProps.initMatchMode) : undefined
     });
@@ -1640,6 +1664,20 @@ function changeAmountFilter(filterType: string): void {
     updateUrlWhenChanged(changed);
 }
 
+function changeAmountSortOrder(sortOrder: string): void {
+    if (query.value.amountSortOrder === sortOrder) {
+        sortOrder = '';
+    }
+
+    const changed = transactionsStore.updateTransactionListFilter({
+        amountSortOrder: sortOrder
+    });
+
+    amountMenuState.value = false;
+
+    updateUrlWhenChanged(changed);
+}
+
 function add(template?: TransactionTemplate, autoRecognizeClipboardText?: string): void {
     const currentUnixTime = getCurrentUnixTime();
 
@@ -1852,6 +1890,7 @@ onBeforeRouteUpdate((to) => {
             initAccountIds: (to.query['accountIds'] as string | null) || undefined,
             initTagFilter: (to.query['tagFilter'] as string | null) || undefined,
             initAmountFilter: (to.query['amountFilter'] as string | null) || undefined,
+            initAmountSortOrder: (to.query['amountSortOrder'] as string | null) || undefined,
             initKeyword: (to.query['keyword'] as string | null) || undefined,
             initMatchMode: (to.query['matchMode'] as string | null) || undefined
         });

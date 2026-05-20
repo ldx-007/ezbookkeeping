@@ -388,7 +388,7 @@ func (s *TransactionService) GetTransactionsByMaxTimeUpToCount(c core.Context, u
 }
 
 // GetTransactionsByMaxTime returns transactions before given time
-func (s *TransactionService) GetTransactionsByMaxTime(c core.Context, uid int64, maxTransactionTime int64, minTransactionTime int64, transactionType models.TransactionType, categoryIds []int64, accountIds []int64, tagFilters []*models.TransactionTagFilter, noTags bool, amountFilter string, keyword string, matchMode core.MatchMode, mustHavePictures bool, page int32, count int32, needOneMoreItem bool, noDuplicated bool) ([]*models.Transaction, error) {
+func (s *TransactionService) GetTransactionsByMaxTime(c core.Context, uid int64, maxTransactionTime int64, minTransactionTime int64, transactionType models.TransactionType, categoryIds []int64, accountIds []int64, tagFilters []*models.TransactionTagFilter, noTags bool, amountFilter string, keyword string, matchMode core.MatchMode, mustHavePictures bool, page int32, count int32, needOneMoreItem bool, noDuplicated bool, amountSortOrder ...string) ([]*models.Transaction, error) {
 	if uid <= 0 {
 		return nil, errs.ErrUserIdInvalid
 	}
@@ -409,11 +409,11 @@ func (s *TransactionService) GetTransactionsByMaxTime(c core.Context, uid int64,
 		finalCount++
 	}
 
-	return s.getTransactionsByMaxTimeWithOffset(c, uid, maxTransactionTime, minTransactionTime, transactionType, categoryIds, accountIds, tagFilters, noTags, amountFilter, keyword, matchMode, mustHavePictures, int(count*(page-1)), finalCount, noDuplicated)
+	return s.getTransactionsByMaxTimeWithOffset(c, uid, maxTransactionTime, minTransactionTime, transactionType, categoryIds, accountIds, tagFilters, noTags, amountFilter, keyword, matchMode, mustHavePictures, int(count*(page-1)), finalCount, noDuplicated, amountSortOrder...)
 }
 
 // getTransactionsByMaxTimeWithOffset returns transactions before given time with explicit offset and limit
-func (s *TransactionService) getTransactionsByMaxTimeWithOffset(c core.Context, uid int64, maxTransactionTime int64, minTransactionTime int64, transactionType models.TransactionType, categoryIds []int64, accountIds []int64, tagFilters []*models.TransactionTagFilter, noTags bool, amountFilter string, keyword string, matchMode core.MatchMode, mustHavePictures bool, offset int, limit int, noDuplicated bool) ([]*models.Transaction, error) {
+func (s *TransactionService) getTransactionsByMaxTimeWithOffset(c core.Context, uid int64, maxTransactionTime int64, minTransactionTime int64, transactionType models.TransactionType, categoryIds []int64, accountIds []int64, tagFilters []*models.TransactionTagFilter, noTags bool, amountFilter string, keyword string, matchMode core.MatchMode, mustHavePictures bool, offset int, limit int, noDuplicated bool, amountSortOrder ...string) ([]*models.Transaction, error) {
 	if uid <= 0 {
 		return nil, errs.ErrUserIdInvalid
 	}
@@ -436,13 +436,13 @@ func (s *TransactionService) getTransactionsByMaxTimeWithOffset(c core.Context, 
 	sess = s.appendFilterTagIdsConditionToQuery(sess, uid, maxTransactionTime, minTransactionTime, tagFilters, noTags)
 	sess = s.appendFilterPicturesConditionToQuery(sess, uid, mustHavePictures)
 
-	err = sess.Limit(limit, offset).OrderBy("transaction_time desc").Find(&transactions)
+	err = sess.Limit(limit, offset).OrderBy(s.getAmountSortOrder(amountSortOrder...)).Find(&transactions)
 
 	return transactions, err
 }
 
 // GetTransactionsInMonthByPage returns all transactions in given year and month
-func (s *TransactionService) GetTransactionsInMonthByPage(c core.Context, uid int64, year int32, month int32, transactionType models.TransactionType, categoryIds []int64, accountIds []int64, tagFilters []*models.TransactionTagFilter, noTags bool, amountFilter string, keyword string, matchMode core.MatchMode, mustHavePictures bool) ([]*models.Transaction, error) {
+func (s *TransactionService) GetTransactionsInMonthByPage(c core.Context, uid int64, year int32, month int32, transactionType models.TransactionType, categoryIds []int64, accountIds []int64, tagFilters []*models.TransactionTagFilter, noTags bool, amountFilter string, keyword string, matchMode core.MatchMode, mustHavePictures bool, amountSortOrder ...string) ([]*models.Transaction, error) {
 	if uid <= 0 {
 		return nil, errs.ErrUserIdInvalid
 	}
@@ -471,7 +471,7 @@ func (s *TransactionService) GetTransactionsInMonthByPage(c core.Context, uid in
 	sess = s.appendFilterTagIdsConditionToQuery(sess, uid, maxTransactionTime, minTransactionTime, tagFilters, noTags)
 	sess = s.appendFilterPicturesConditionToQuery(sess, uid, mustHavePictures)
 
-	err = sess.OrderBy("transaction_time desc").Find(&transactions)
+	err = sess.OrderBy(s.getAmountSortOrder(amountSortOrder...)).Find(&transactions)
 
 	transactionsInMonth := make([]*models.Transaction, 0, len(transactions))
 
@@ -2922,6 +2922,21 @@ func (s *TransactionService) doCreateTransaction(c core.Context, database *datas
 	}
 
 	return err
+}
+
+func (s *TransactionService) getAmountSortOrder(amountSortOrder ...string) string {
+	if len(amountSortOrder) > 0 && amountSortOrder[0] != "" {
+		switch amountSortOrder[0] {
+		case "asc":
+			return "amount asc, transaction_time desc"
+		case "desc":
+			return "amount desc, transaction_time desc"
+		default:
+			return "transaction_time desc"
+		}
+	}
+
+	return "transaction_time desc"
 }
 
 func (s *TransactionService) buildTransactionQueryCondition(uid int64, maxTransactionTime int64, minTransactionTime int64, transactionDbType models.TransactionDbType, categoryIds []int64, accountIds []int64, tagFilters []*models.TransactionTagFilter, amountFilter string, keyword string, matchMode core.MatchMode, noDuplicated bool) (string, []any) {

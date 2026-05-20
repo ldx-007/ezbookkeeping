@@ -231,6 +231,7 @@ type TransactionListByMaxTimeRequest struct {
 	AccountIds       string          `form:"account_ids"`
 	TagFilter        string          `form:"tag_filter" binding:"validTagFilter"`
 	AmountFilter     string          `form:"amount_filter" binding:"validAmountFilter"`
+	AmountSortOrder  string          `form:"amount_sort_order"`
 	Keyword          string          `form:"keyword"`
 	MatchMode        core.MatchMode  `form:"match_mode" binding:"min=0,max=1"`
 	MustHavePictures bool            `form:"must_have_pictures"`
@@ -254,6 +255,7 @@ type TransactionListInMonthByPageRequest struct {
 	AccountIds       string          `form:"account_ids"`
 	TagFilter        string          `form:"tag_filter" binding:"validTagFilter"`
 	AmountFilter     string          `form:"amount_filter" binding:"validAmountFilter"`
+	AmountSortOrder  string          `form:"amount_sort_order"`
 	Keyword          string          `form:"keyword"`
 	MatchMode        core.MatchMode  `form:"match_mode" binding:"min=0,max=1"`
 	MustHavePictures bool            `form:"must_have_pictures"`
