@@ -17,7 +17,7 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: |
-            ${{ secrets.DOCKER_REPO }}/mayswind/ezbookkeeping
+            ${{ secrets.DOCKER_REPO }}/ldx-007/ezbookkeeping
           tags: |
             type=raw,value=SNAPSHOT-{{date 'YYYYMMDD'}}
             type=raw,value=latest-snapshot
