@@ -536,3 +536,34 @@ export class AmountFilterType {
         return AmountFilterType.allInstancesByType[type];
     }
 }
+
+export class AmountSortOrderType {
+    private static readonly allInstances: AmountSortOrderType[] = [];
+    private static readonly allInstancesByType: Record<string, AmountSortOrderType> = {};
+
+    public static readonly AmountAscending = new AmountSortOrderType('asc', 'Amount (Ascending)');
+    public static readonly AmountDescending = new AmountSortOrderType('desc', 'Amount (Descending)');
+
+    public readonly type: string;
+    public readonly name: string;
+
+    private constructor(type: string, name: string) {
+        this.type = type;
+        this.name = name;
+
+        AmountSortOrderType.allInstances.push(this);
+        AmountSortOrderType.allInstancesByType[type] = this;
+    }
+
+    public static values(): AmountSortOrderType[] {
+        return AmountSortOrderType.allInstances;
+    }
+
+    public static valueOf(type: string): AmountSortOrderType | undefined {
+        return AmountSortOrderType.allInstancesByType[type];
+    }
+
+    public static isValidSortOrder(type: string): boolean {
+        return !!AmountSortOrderType.allInstancesByType[type];
+    }
+}

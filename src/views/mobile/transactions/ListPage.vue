@@ -65,7 +65,7 @@
                 <span :class="{ 'tabbar-item-changed': query.accountIds }">{{ queryAccountName }}</span>
             </f7-link>
             <f7-link popover-open=".more-popover-menu" :class="{ 'disabled': loading }">
-                <f7-icon f7="ellipsis_vertical" :class="{ 'tabbar-item-changed': query.type > 0 || query.amountFilter || query.tagFilter }"></f7-icon>
+                <f7-icon f7="ellipsis_vertical" :class="{ 'tabbar-item-changed': query.type > 0 || query.amountFilter || query.amountSortOrder || query.tagFilter }"></f7-icon>
             </f7-link>
         </f7-toolbar>
 
@@ -567,6 +567,25 @@
                         <f7-icon class="list-item-checked-icon" f7="checkmark_alt" v-if="query.amountFilter && query.amountFilter.startsWith(`${filterType.type}:`)"></f7-icon>
                     </template>
                 </f7-list-item>
+                <f7-list-item group-title>
+                    <small>{{ tt('Sort') }}</small>
+                </f7-list-item>
+                <f7-list-item link="#" no-chevron popover-close
+                              :class="{ 'list-item-selected': query.amountSortOrder === AmountSortOrderType.AmountAscending.type }"
+                              :title="tt(AmountSortOrderType.AmountAscending.name)"
+                              @click="changeAmountSortOrder(AmountSortOrderType.AmountAscending.type)">
+                    <template #after>
+                        <f7-icon class="list-item-checked-icon" f7="checkmark_alt" v-if="query.amountSortOrder === AmountSortOrderType.AmountAscending.type"></f7-icon>
+                    </template>
+                </f7-list-item>
+                <f7-list-item link="#" no-chevron popover-close
+                              :class="{ 'list-item-selected': query.amountSortOrder === AmountSortOrderType.AmountDescending.type }"
+                              :title="tt(AmountSortOrderType.AmountDescending.name)"
+                              @click="changeAmountSortOrder(AmountSortOrderType.AmountDescending.type)">
+                    <template #after>
+                        <f7-icon class="list-item-checked-icon" f7="checkmark_alt" v-if="query.amountSortOrder === AmountSortOrderType.AmountDescending.type"></f7-icon>
+                    </template>
+                </f7-list-item>
 
                 <f7-list-item group-title>
                     <small>{{ tt('Tags') }}</small>
@@ -668,7 +687,7 @@ import {
     DateRangeScene,
     DateRange
 } from '@/core/datetime.ts';
-import { AmountFilterType } from '@/core/numeral.ts';
+import { AmountFilterType, AmountSortOrderType } from '@/core/numeral.ts';
 import { TransactionType } from '@/core/transaction.ts';
 import type { TransactionCategory } from '@/models/transaction_category.ts';
 import { type Transaction, TransactionTagFilter } from '@/models/transaction.ts';
@@ -988,6 +1007,7 @@ function init(): void {
         categoryIds: initQuery['categoryIds'],
         accountIds: initQuery['accountIds'],
         tagFilter: initQuery['tagFilter'],
+        amountSortOrder: initQuery['amountSortOrder'] as string || undefined,
         keyword: initQuery['keyword']
     });
 
@@ -1399,6 +1419,20 @@ function changeAmountFilter(filterType: string): void {
 
     const changed = transactionsStore.updateTransactionListFilter({
         amountFilter: filterType
+    });
+
+    if (changed) {
+        reload();
+    }
+}
+
+function changeAmountSortOrder(sortOrder: string): void {
+    if (query.value.amountSortOrder === sortOrder) {
+        sortOrder = '';
+    }
+
+    const changed = transactionsStore.updateTransactionListFilter({
+        amountSortOrder: sortOrder
     });
 
     if (changed) {

@@ -228,6 +228,7 @@ type TransactionListByMaxTimeRequest struct {
 	AccountIds       string          `form:"account_ids"`
 	TagFilter        string          `form:"tag_filter" binding:"validTagFilter"`
 	AmountFilter     string          `form:"amount_filter" binding:"validAmountFilter"`
+	AmountSortOrder  string          `form:"amount_sort_order"`
 	Keyword          string          `form:"keyword"`
 	MustHavePictures bool            `form:"must_have_pictures"`
 	MaxTime          int64           `form:"max_time" binding:"min=0"` // Transaction time sequence id
@@ -250,6 +251,7 @@ type TransactionListInMonthByPageRequest struct {
 	AccountIds       string          `form:"account_ids"`
 	TagFilter        string          `form:"tag_filter" binding:"validTagFilter"`
 	AmountFilter     string          `form:"amount_filter" binding:"validAmountFilter"`
+	AmountSortOrder  string          `form:"amount_sort_order"`
 	Keyword          string          `form:"keyword"`
 	MustHavePictures bool            `form:"must_have_pictures"`
 	WithPictures     bool            `form:"with_pictures"`

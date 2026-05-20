@@ -1573,6 +1573,8 @@
     "Not equal to": "不等于",
     "Between": "介于",
     "Not between": "不介于",
+    "Amount (Ascending)": "金额升序",
+    "Amount (Descending)": "金额降序",
     "In": "在范围内",
     "Not in": "不在范围内",
     "Has any": "包含任意",
