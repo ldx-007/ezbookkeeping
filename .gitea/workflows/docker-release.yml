@@ -17,7 +17,7 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: |
-            ${{ secrets.DOCKER_REPO }}/ldx007/ezbookkeeping
+            ${{ secrets.DOCKER_REPO }}/ldx-007/ezbookkeeping
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
