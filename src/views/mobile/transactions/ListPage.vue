@@ -193,7 +193,7 @@
                                     <small>
                                         <span>{{ getDisplayLongYearMonth(transactionMonthList) }}</span>
                                     </small>
-                                    <small class="transaction-amount-statistics" v-if="showTotalAmountInTransactionListPage && transactionMonthList.totalAmount">
+                                    <small class="transaction-amount-statistics" v-if="showTotalAmountInTransactionListPage && !query.amountSortOrder && transactionMonthList.totalAmount">
                                         <span class="text-income">
                                             {{ getDisplayMonthTotalAmount(transactionMonthList.totalAmount.income, selectedAccountDefaultCurrency, '+', transactionMonthList.totalAmount.incompleteIncome) }}
                                         </span>

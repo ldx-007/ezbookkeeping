@@ -135,6 +135,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
 
     const transactions = ref<TransactionMonthList[]>([]);
     const transactionsNextTimeId = ref<number>(0);
+    const transactionsLoadPageNumber = ref<number>(1);
     const transactionListStateInvalid = ref<boolean>(true);
     const transactionReconciliationStatementStateInvalid = ref<boolean>(true);
 
@@ -656,6 +657,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
         transactionsFilter.value.matchMode = KeywordMatchMode.Default.type;
         transactions.value = [];
         transactionsNextTimeId.value = 0;
+        transactionsLoadPageNumber.value = 1;
         transactionListStateInvalid.value = true;
         transactionReconciliationStatementStateInvalid.value = true;
     }
@@ -663,6 +665,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
     function clearTransactions(): void {
         transactions.value = [];
         transactionsNextTimeId.value = 0;
+        transactionsLoadPageNumber.value = 1;
         transactionListStateInvalid.value = true;
     }
 
@@ -864,20 +867,38 @@ export const useTransactionsStore = defineStore('transactions', () => {
     }
 
     function loadTransactions({ reload, count, page, mustHavePictures, withCount, withPictures, autoExpand, defaultCurrency }: { reload?: boolean, count?: number, page?: number, mustHavePictures?: boolean, withCount?: boolean, withPictures?: boolean, autoExpand: boolean, defaultCurrency: string }): Promise<TransactionPageWrapper> {
-        let actualMaxTime = transactionsNextTimeId.value;
+        let actualMaxTime: number;
 
-        if (reload && transactionsFilter.value.maxTime > 0) {
-            actualMaxTime = transactionsFilter.value.maxTime * 1000 + 999;
-        } else if (reload && transactionsFilter.value.maxTime <= 0) {
-            actualMaxTime = 0;
+        if (transactionsFilter.value.amountSortOrder) {
+            // When sorting by amount, use page-based pagination instead of time-based cursor,
+            // because the time cursor does not work correctly with amount sort order
+            if (reload) {
+                transactionsLoadPageNumber.value = 1;
+            }
+
+            if (transactionsFilter.value.maxTime > 0) {
+                actualMaxTime = transactionsFilter.value.maxTime * 1000 + 999;
+            } else {
+                actualMaxTime = 0;
+            }
+        } else {
+            actualMaxTime = transactionsNextTimeId.value;
+
+            if (reload && transactionsFilter.value.maxTime > 0) {
+                actualMaxTime = transactionsFilter.value.maxTime * 1000 + 999;
+            } else if (reload && transactionsFilter.value.maxTime <= 0) {
+                actualMaxTime = 0;
+            }
         }
+
+        const actualPage = page || (transactionsFilter.value.amountSortOrder ? transactionsLoadPageNumber.value : 1);
 
         return new Promise((resolve, reject) => {
             services.getTransactions({
                 maxTime: actualMaxTime,
                 minTime: transactionsFilter.value.minTime * 1000,
                 count: count || 50,
-                page: page || 1,
+                page: actualPage,
                 withCount: !!withCount,
                 withPictures: !!withPictures,
                 mustHavePictures: !!mustHavePictures,
@@ -922,6 +943,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
                     defaultCurrency: defaultCurrency,
                     nextTimeSequenceId: data.result.nextTimeSequenceId
                 });
+
+                if (!reload && transactionsFilter.value.amountSortOrder) {
+                    transactionsLoadPageNumber.value++;
+                }
 
                 if (reload) {
                     if (transactionListStateInvalid.value) {
@@ -1709,6 +1734,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
         transactionsFilter,
         transactions,
         transactionsNextTimeId,
+        transactionsLoadPageNumber,
         transactionListStateInvalid,
         transactionReconciliationStatementStateInvalid,
         // computed states
