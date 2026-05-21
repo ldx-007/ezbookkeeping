@@ -173,13 +173,13 @@
         </f7-list>
 
         <f7-block class="combination-list-wrapper margin-vertical" :class="{ 'no-accordion-toggle': pageType !== TransactionListPageType.List.type && pageType !== TransactionListPageType.Gallery.type }"
-                  :key="transactionMonthList.yearDashMonth" v-for="(transactionMonthList) in transactions">
+                  :key="idx" v-for="(transactionMonthList, idx) in transactions">
             <f7-accordion-item :opened="transactionMonthList.opened"
                                @accordion:open="collapseTransactionMonthList(transactionMonthList, false)"
                                @accordion:opened="onTransactionMonthListCollapseStateChanged"
                                @accordion:close="collapseTransactionMonthList(transactionMonthList, true)"
                                @accordion:closed="onTransactionMonthListCollapseStateChanged">
-                <f7-block-title :id="getTransactionMonthTitleDomId(transactionMonthList.yearDashMonth)" v-if="pageType === TransactionListPageType.List.type || pageType === TransactionListPageType.Gallery.type">
+                <f7-block-title :id="getTransactionMonthTitleDomId(transactionMonthList.yearDashMonth, idx)" v-if="pageType === TransactionListPageType.List.type || pageType === TransactionListPageType.Gallery.type">
                     <f7-accordion-toggle>
                         <f7-list strong inset dividers media-list
                                  class="transaction-amount-list combination-list-header"
@@ -204,12 +204,12 @@
                     </f7-accordion-toggle>
                 </f7-block-title>
                 <f7-accordion-content>
-                    <f7-block :style="{ height: getTransactionMonthListHeight(transactionMonthList) }"
-                              v-if="isTransactionMonthListInvisible(transactionMonthList)" />
+                    <f7-block :style="{ height: getTransactionMonthListHeight(transactionMonthList, idx) }"
+                              v-if="isTransactionMonthListInvisible(transactionMonthList, idx)" />
                     <f7-list strong inset dividers media-list accordion-list
                              class="transaction-info-list transaction-month-list combination-list-content"
-                             :id="getTransactionMonthListDomId(transactionMonthList.yearDashMonth)"
-                             v-if="!isTransactionMonthListInvisible(transactionMonthList) && (pageType === TransactionListPageType.List.type || pageType === TransactionListPageType.Calendar.type)"
+                             :id="getTransactionMonthListDomId(transactionMonthList.yearDashMonth, idx)"
+                             v-if="!isTransactionMonthListInvisible(transactionMonthList, idx) && (pageType === TransactionListPageType.List.type || pageType === TransactionListPageType.Calendar.type)"
                     >
                         <f7-list-item swipeout chevron-center accordion-item
                                       class="transaction-info"
@@ -311,8 +311,8 @@
                     </f7-list>
                     <f7-list strong inset dividers media-list accordion-list
                              class="transaction-info-list transaction-month-list combination-list-content transaction-gallery-list"
-                             :id="getTransactionMonthListDomId(transactionMonthList.yearDashMonth)"
-                             v-if="!isTransactionMonthListInvisible(transactionMonthList) && (pageType === TransactionListPageType.Gallery.type)">
+                             :id="getTransactionMonthListDomId(transactionMonthList.yearDashMonth, idx)"
+                             v-if="!isTransactionMonthListInvisible(transactionMonthList, idx) && (pageType === TransactionListPageType.Gallery.type)">
                         <f7-list-item class="transaction-gallery-container">
                             <template #default>
                                 <div class="transaction-gallery-grid">
@@ -796,8 +796,8 @@ const transactionsStore = useTransactionsStore();
 const loadingError = ref<unknown | null>(null);
 const loadingMore = ref<boolean>(false);
 const transactionToDelete = ref<Transaction | null>(null);
-const transactionInvisibleYearMonths = ref<Record<TextualYearMonth, boolean>>({});
-const transactionYearMonthListHeights = ref<Record<TextualYearMonth, number>>({});
+const transactionInvisibleYearMonths = ref<Record<string, boolean>>({});
+const transactionYearMonthListHeights = ref<Record<string, number>>({});
 const showSearchbar = ref<boolean>(false);
 const showCustomDateRangeSheet = ref<boolean>(false);
 const showCustomMonthSheet = ref<boolean>(false);
@@ -865,20 +865,22 @@ const noTransaction = computed<boolean>(() => {
 
 const hasMoreTransaction = computed<boolean>(() => transactionsStore.hasMoreTransaction);
 
-function getTransactionMonthTitleDomId(yearMonth: TextualYearMonth): string {
-    return 'transaction_month_title_' + yearMonth;
+function getTransactionMonthTitleDomId(yearMonth: TextualYearMonth, index: number): string {
+    return 'transaction_month_title_' + yearMonth + '_' + index;
 }
 
-function getTransactionMonthListDomId(yearMonth: TextualYearMonth): string {
-    return 'transaction_month_list_' + yearMonth;
+function getTransactionMonthListDomId(yearMonth: TextualYearMonth, index: number): string {
+    return 'transaction_month_list_' + yearMonth + '_' + index;
 }
 
 function getTransactionDomId(transaction: Transaction): string {
     return 'transaction_' + transaction.id;
 }
 
-function isTransactionMonthListInvisible(transactionMonthList: TransactionMonthList): boolean {
-    if (!transactionYearMonthListHeights.value[transactionMonthList.yearDashMonth]) {
+function isTransactionMonthListInvisible(transactionMonthList: TransactionMonthList, index: number): boolean {
+    const key = transactionMonthList.yearDashMonth + '_' + index;
+
+    if (!transactionYearMonthListHeights.value[key]) {
         return false;
     }
 
@@ -886,16 +888,17 @@ function isTransactionMonthListInvisible(transactionMonthList: TransactionMonthL
         return true;
     }
 
-    if (transactionInvisibleYearMonths.value[transactionMonthList.yearDashMonth]) {
+    if (transactionInvisibleYearMonths.value[key]) {
         return true;
     }
 
     return false;
 }
 
-function getTransactionMonthListHeight(transactionMonthList: TransactionMonthList): string {
-    if (isTransactionMonthListInvisible(transactionMonthList)) {
-        return transactionYearMonthListHeights.value[transactionMonthList.yearDashMonth] + 'px';
+function getTransactionMonthListHeight(transactionMonthList: TransactionMonthList, index: number): string {
+    if (isTransactionMonthListInvisible(transactionMonthList, index)) {
+        const key = transactionMonthList.yearDashMonth + '_' + index;
+        return transactionYearMonthListHeights.value[key] + 'px';
     }
 
     return 'auto';
@@ -911,14 +914,14 @@ function setTransactionMonthListHeights(reset: boolean): Promise<unknown> {
         if (transactions.value && transactions.value.length) {
             const heights: Record<string, number> = getElementActualHeights('.transaction-month-list');
 
-            for (let i = 0; i < transactions.value.length - 1; i++) {
+            for (let i = 0; i < transactions.value.length; i++) {
                 const transactionMonthList = transactions.value[i] as TransactionMonthList;
-                const yearDashMonth = transactionMonthList.yearDashMonth;
-                const domId = getTransactionMonthListDomId(yearDashMonth);
+                const key = transactionMonthList.yearDashMonth + '_' + i;
+                const domId = getTransactionMonthListDomId(transactionMonthList.yearDashMonth, i);
                 const height = heights[domId];
 
-                if (!transactionYearMonthListHeights.value[yearDashMonth] && isNumber(height)) {
-                    transactionYearMonthListHeights.value[yearDashMonth] = height;
+                if (!transactionYearMonthListHeights.value[key] && isNumber(height)) {
+                    transactionYearMonthListHeights.value[key] = height;
                 }
             }
         }
@@ -930,26 +933,25 @@ function setTransactionInvisibleYearMonthList(): void {
         return;
     }
 
-    for (let i = 0; i < transactions.value.length - 1; i++) {
+    for (let i = 0; i < transactions.value.length; i++) {
         const transactionMonthList = transactions.value[i] as TransactionMonthList;
-        const yearDashMonth = transactionMonthList.yearDashMonth;
-
-        const titleDomId = getTransactionMonthTitleDomId(yearDashMonth);
+        const key = transactionMonthList.yearDashMonth + '_' + i;
+        const titleDomId = getTransactionMonthTitleDomId(transactionMonthList.yearDashMonth, i);
         const titleRect = getElementBoundingRect(`#${titleDomId}`);
 
         if (!titleRect) {
             continue;
         }
 
-        const listHeight = transactionYearMonthListHeights.value[yearDashMonth] || 0;
+        const listHeight = transactionYearMonthListHeights.value[key] || 0;
         const listRectTop = titleRect.top + titleRect.height;
         const listRectBottom = listRectTop + listHeight;
         const invisible = listRectTop > 2 * window.innerHeight || listRectBottom < -2 * window.innerHeight;
 
         if (invisible) {
-            transactionInvisibleYearMonths.value[yearDashMonth] = true;
+            transactionInvisibleYearMonths.value[key] = true;
         } else {
-            delete transactionInvisibleYearMonths.value[yearDashMonth];
+            delete transactionInvisibleYearMonths.value[key];
         }
     }
 }
