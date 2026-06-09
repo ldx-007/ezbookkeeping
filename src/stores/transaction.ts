@@ -1902,3 +1902,68 @@ export const useTransactionsStore = defineStore('transactions', () => {
         collapseMonthInTransactionList
     };
 });
+
+export function calculateCurrencyTotalAmounts(
+    transactions: Transaction[],
+    accountIds: string,
+    defaultCurrency: string
+): { income: TransactionCurrencyAmount[]; expense: TransactionCurrencyAmount[] } {
+    const incomeItems: TransactionCurrencyAmount[] = [];
+    const expenseItems: TransactionCurrencyAmount[] = [];
+    const selectedAccountIds = new Set<string>();
+
+    if (accountIds) {
+        for (const accountId of accountIds.split(',')) {
+            if (accountId) {
+                selectedAccountIds.add(accountId);
+            }
+        }
+    }
+
+    for (const transaction of transactions) {
+        let amount = transaction.sourceAmount;
+        let currency = transaction.sourceAccount?.currency || defaultCurrency;
+
+        if (selectedAccountIds.size > 0 && transaction.destinationAccount
+            && !selectedAccountIds.has(transaction.sourceAccount?.id || '')
+            && !selectedAccountIds.has(transaction.sourceAccount?.parentId || '')
+            && (selectedAccountIds.has(transaction.destinationAccount.id) || selectedAccountIds.has(transaction.destinationAccount.parentId))) {
+            amount = transaction.destinationAmount;
+            currency = transaction.destinationAccount.currency;
+        }
+
+        if (transaction.type === TransactionType.Expense) {
+            appendCurrencyTotalAmountItem(expenseItems, currency, amount);
+        } else if (transaction.type === TransactionType.Income) {
+            appendCurrencyTotalAmountItem(incomeItems, currency, amount);
+        } else if (transaction.type === TransactionType.Transfer && selectedAccountIds.size > 0) {
+            const sourceMatched = selectedAccountIds.has(transaction.sourceAccountId) || selectedAccountIds.has(transaction.sourceAccount?.parentId || '');
+            const destinationMatched = selectedAccountIds.has(transaction.destinationAccountId) || selectedAccountIds.has(transaction.destinationAccount?.parentId || '');
+
+            if (sourceMatched && !destinationMatched) {
+                appendCurrencyTotalAmountItem(expenseItems, currency, amount);
+            } else if (!sourceMatched && destinationMatched) {
+                appendCurrencyTotalAmountItem(incomeItems, currency, amount);
+            }
+        }
+    }
+
+    return {
+        income: incomeItems,
+        expense: expenseItems
+    };
+}
+
+function appendCurrencyTotalAmountItem(items: TransactionCurrencyAmount[], currency: string, amount: number): void {
+    const existingItem = items.find(item => item.currency === currency);
+
+    if (existingItem) {
+        existingItem.amount += amount;
+    } else {
+        items.push({
+            currency,
+            amount,
+            incomplete: false
+        });
+    }
+}

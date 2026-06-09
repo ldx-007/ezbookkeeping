@@ -804,7 +804,7 @@ import {
     categoryTypeToTransactionType,
     transactionTypeToCategoryType
 } from '@/lib/category.ts';
-import { type TransactionCurrencyAmount } from '@/stores/transaction.ts';
+import { type TransactionCurrencyAmount, calculateCurrencyTotalAmounts } from '@/stores/transaction.ts';
 import { allTransactionPictures } from '@/lib/transaction.ts';
 import {
     isDataExportingEnabled,
@@ -865,11 +865,6 @@ interface TransactionListDisplayTotalAmount {
     expense: string;
     incomeInDefaultCurrency: string;
     expenseInDefaultCurrency: string;
-}
-
-interface TransactionListDisplayTotalAmountItem {
-    currency: string;
-    amount: number;
 }
 
 const router = useRouter();
@@ -970,6 +965,8 @@ const currentAmountFilterValue1 = ref<number>(0);
 const currentAmountFilterValue2 = ref<number>(0);
 const currentPageTransactions = ref<Transaction[]>([]);
 const fullRangeTotalAmount = ref<TransactionListDisplayTotalAmount | null>(null);
+let lastTotalFilterKey = '';
+let fullRangeTotalRequestId = 0;
 const categoryMenuState = ref<boolean>(false);
 const amountMenuState = ref<boolean>(false);
 const exportingData = ref<boolean>(false);
@@ -1188,7 +1185,7 @@ const currentMonthTotalAmount = computed<TransactionListDisplayTotalAmount | nul
             income: getDisplayMonthTotalAmount(transactionData.totalAmount.income, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteIncome),
             expense: getDisplayMonthTotalAmount(transactionData.totalAmount.expense, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteExpense),
             incomeInDefaultCurrency: getDisplayMonthTotalAmount(transactionData.totalAmount.income, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteIncome, true),
-            expenseInDefaultCurrency: getDisplayMonthTotalAmount(transactionData.totalAmount.expense, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteExpense, true)
+            expenseInDefaultCurrency: getDisplayMonthTotalAmount(transactionData.totalAmount.expense, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteExpense, true) (upd: 桌面端添加总支出总收入)
         };
 
         return displayMonthlyTotalAmount;
@@ -1197,24 +1194,14 @@ const currentMonthTotalAmount = computed<TransactionListDisplayTotalAmount | nul
     }
 });
 
-function getDisplayCurrencyTotalAmounts(items: { currency: string; incomeAmount?: number; expenseAmount?: number }[] | TransactionListDisplayTotalAmountItem[] | undefined, type: 'income' | 'expense'): string {
-    const displayItems: TransactionListDisplayTotalAmountItem[] = [];
+function getDisplayCurrencyTotalAmounts(items: TransactionCurrencyAmount[]): string {
+    const displayItems: { currency: string; amount: number }[] = [];
 
-    if (items && items.length) {
+    if (items.length) {
         for (const item of items) {
-            let amount = 0;
-
-            if ('amount' in item) {
-                amount = item.amount;
-            } else if (type === 'income' && isNumber(item.incomeAmount)) {
-                amount = item.incomeAmount;
-            } else if (type === 'expense' && isNumber(item.expenseAmount)) {
-                amount = item.expenseAmount;
-            }
-
             displayItems.push({
                 currency: item.currency || selectedAccountDefaultCurrency.value,
-                amount
+                amount: item.amount (upd: 桌面端添加总支出总收入)
             });
         }
     }
@@ -1235,6 +1222,8 @@ function loadFullRangeTotalAmount(): Promise<void> {
         return Promise.resolve();
     }
 
+    const requestId = ++fullRangeTotalRequestId;
+
     return new Promise((resolve, reject) => {
         services.getAllTransactions({
             type: query.value.type,
@@ -1243,10 +1232,15 @@ function loadFullRangeTotalAmount(): Promise<void> {
             tagFilter: query.value.tagFilter,
             amountFilter: query.value.amountFilter,
             keyword: query.value.keyword,
-            mustHavePictures: pageType.value === TransactionListPageType.Gallery.type,
+            mustHavePictures: false,
             startTime: query.value.minTime,
             endTime: query.value.maxTime
         }).then((response) => {
+            if (requestId !== fullRangeTotalRequestId) {
+                resolve(); // stale response, ignore
+                return;
+            }
+
             const data = response.data;
 
             if (!data || !data.success || !data.result) {
@@ -1254,15 +1248,24 @@ function loadFullRangeTotalAmount(): Promise<void> {
                 return;
             }
 
-            const totalAmount = calculateDisplayTotalAmountByTransactions(Transaction.ofMulti(data.result));
+            const totalAmount = calculateCurrencyTotalAmounts(Transaction.ofMulti(data.result), query.value.accountIds, selectedAccountDefaultCurrency.value);
 
             fullRangeTotalAmount.value = {
-                income: getDisplayCurrencyTotalAmounts(totalAmount.income, 'income'),
-                expense: getDisplayCurrencyTotalAmounts(totalAmount.expense, 'expense')
+                incomeIsZero: totalAmount.income.length === 0 || totalAmount.income.every(item => item.amount === 0),
+                expenseIsZero: totalAmount.expense.length === 0 || totalAmount.expense.every(item => item.amount === 0),
+                income: getDisplayCurrencyTotalAmounts(totalAmount.income),
+                expense: getDisplayCurrencyTotalAmounts(totalAmount.expense),
+                incomeInDefaultCurrency: getDisplayCurrencyTotalAmounts(totalAmount.income),
+                expenseInDefaultCurrency: getDisplayCurrencyTotalAmounts(totalAmount.expense)
             };
 
             resolve();
         }).catch((error) => {
+            if (requestId !== fullRangeTotalRequestId) {
+                resolve(); // stale error, ignore
+                return;
+            }
+
             fullRangeTotalAmount.value = null;
 
             if (error.response && error.response.data && error.response.data.errorMessage) {
@@ -1274,67 +1277,6 @@ function loadFullRangeTotalAmount(): Promise<void> {
             }
         });
     });
-}
-
-function calculateDisplayTotalAmountByTransactions(allTransactions: Transaction[]): { income: TransactionCurrencyAmount[]; expense: TransactionCurrencyAmount[] } {
-    const incomeItems: TransactionCurrencyAmount[] = [];
-    const expenseItems: TransactionCurrencyAmount[] = [];
-    const selectedAccountIds = new Set<string>();
-
-    if (query.value.accountIds) {
-        for (const accountId of query.value.accountIds.split(',')) {
-            if (accountId) {
-                selectedAccountIds.add(accountId);
-            }
-        }
-    }
-
-    for (const transaction of allTransactions) {
-        let amount = transaction.sourceAmount;
-        let currency = transaction.sourceAccount?.currency || selectedAccountDefaultCurrency.value;
-
-        if (selectedAccountIds.size > 0 && transaction.destinationAccount
-            && !selectedAccountIds.has(transaction.sourceAccount?.id || '')
-            && !selectedAccountIds.has(transaction.sourceAccount?.parentId || '')
-            && (selectedAccountIds.has(transaction.destinationAccount.id) || selectedAccountIds.has(transaction.destinationAccount.parentId))) {
-            amount = transaction.destinationAmount;
-            currency = transaction.destinationAccount.currency;
-        }
-
-        if (transaction.type === TransactionType.Expense) {
-            appendDisplayTotalAmount(expenseItems, currency, amount);
-        } else if (transaction.type === TransactionType.Income) {
-            appendDisplayTotalAmount(incomeItems, currency, amount);
-        } else if (transaction.type === TransactionType.Transfer && selectedAccountIds.size > 0) {
-            const sourceMatched = selectedAccountIds.has(transaction.sourceAccountId) || selectedAccountIds.has(transaction.sourceAccount?.parentId || '');
-            const destinationMatched = selectedAccountIds.has(transaction.destinationAccountId) || selectedAccountIds.has(transaction.destinationAccount?.parentId || '');
-
-            if (sourceMatched && !destinationMatched) {
-                appendDisplayTotalAmount(expenseItems, currency, amount);
-            } else if (!sourceMatched && destinationMatched) {
-                appendDisplayTotalAmount(incomeItems, currency, amount);
-            }
-        }
-    }
-
-    return {
-        income: incomeItems,
-        expense: expenseItems
-    };
-}
-
-function appendDisplayTotalAmount(items: TransactionCurrencyAmount[], currency: string, amount: number): void {
-    const existingItem = items.find(item => item.currency === currency);
-
-    if (existingItem) {
-        existingItem.amount += amount;
-    } else {
-        items.push({
-            currency,
-            amount,
-            incomplete: false
-        });
-    }
 }
 
 function getCategoryListItemCheckedClass(category: TransactionCategory, queryCategoryIds: Record<string, boolean>): Record<string, boolean> {
@@ -1442,17 +1384,37 @@ function init(initProps: TransactionListProps): void {
 
 function reload(force: boolean, init: boolean): void {
     loading.value = true;
-    fullRangeTotalAmount.value = null;
 
     const isGalleryMode = pageType.value === TransactionListPageType.Gallery.type;
     const page = currentPage.value;
 
-    Promise.all([
+    const shouldLoadTotals = showTotalAmountInTransactionListPage && !queryMonthlyData.value && pageType.value === TransactionListPageType.List.type;
+    let totalsFilterChanged = false;
+
+    if (shouldLoadTotals) {
+        const filterKey = `${pageType.value}|${query.value.dateType}|${query.value.minTime}|${query.value.maxTime}|${query.value.type}|${query.value.categoryIds}|${query.value.accountIds}|${query.value.tagFilter}|${query.value.amountFilter}|${query.value.keyword}`;
+        totalsFilterChanged = filterKey !== lastTotalFilterKey;
+
+        if (totalsFilterChanged) {
+            fullRangeTotalAmount.value = null;
+            lastTotalFilterKey = filterKey;
+        }
+    } else {
+        fullRangeTotalAmount.value = null;
+        lastTotalFilterKey = '';
+    }
+
+    const loadPromises: Promise<unknown>[] = [
         accountsStore.loadAllAccounts({ force: false }),
         transactionCategoriesStore.loadAllCategories({ force: false }),
-        transactionTagsStore.loadAllTags({ force: false }),
-        loadFullRangeTotalAmount()
-    ]).then(() => {
+        transactionTagsStore.loadAllTags({ force: false })
+    ];
+
+    if (shouldLoadTotals && totalsFilterChanged) {
+        loadPromises.push(loadFullRangeTotalAmount().catch(() => {}));
+    }
+
+    Promise.all(loadPromises).then(() => {
         if (init) {
             if (desktopPageStore.showAddTransactionDialogInTransactionList) {
                 desktopPageStore.resetShowAddTransactionDialogInTransactionList();

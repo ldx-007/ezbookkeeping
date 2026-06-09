@@ -235,10 +235,13 @@
 
 - `src/stores/transaction.ts`
   - 月度总额新增按币种汇总结构和计算逻辑
+  - 新增 `calculateCurrencyTotalAmounts()` 导出函数，供桌面端和后续功能共用按币种汇总逻辑
 
 - `src/views/desktop/transactions/ListPage.vue`
   - 桌面端月份 / 自定义日期总额展示
   - 自定义日期全量汇总逻辑
+  - 改用共享的 `calculateCurrencyTotalAmounts()`，移除本地重复实现
+  - 修复：`loadFullRangeTotalAmount` 失败不影响主列表、翻页不重复拉取总额、竞态保护
 
 - `src/views/mobile/transactions/ListPage.vue`
   - 移动端总额展示卡片
@@ -325,33 +328,23 @@ go build ./...
 
 ## 8. 后续接手注意事项
 
-### 8.1 `list/all` 的“全量”语义需要留意
+### 8.1 `list/all` 的”全量”语义
 
 桌面端自定义日期总额依赖 `v1/transactions/list/all.json`。
 
-如果未来某些用户的数据量非常大，需要再确认后端这个接口内部是否有导出上限 / 查询上限。
+经检查，后端 `GetAllSpecifiedTransactions()` 使用游标分页循环拉取全部数据（每页 1000 条），**没有硬性数量上限**，可以放心使用。
 
-如果存在上限，那么“自定义日期总额 = 全量数据总和”在极大数据量下可能仍然不完全准确。
-
-建议后续如需继续增强，可重点检查：
-
-- `pkg/api/transactions.go`
-- `pkg/services/transactions.go`
-
----
+但如果某用户单次筛选范围内的交易量极大（数万笔以上），循环分页会导致多次 SQL 查询，响应时间会明显增加。如果后续出现此场景，可考虑为 `list/all` 加一个专门的聚合接口。
 
 ### 8.2 月度汇总和自定义汇总的规则要保持一致
 
-如果后续再改“账户筛选下转账如何计入流入 / 流出”，要同时检查两处：
+后续如果再改”账户筛选下转账如何计入流入 / 流出”，现在只需要改一处：
 
 1. `src/stores/transaction.ts`
-   - 月度汇总逻辑
-2. `src/views/desktop/transactions/ListPage.vue`
-   - 自定义日期全量汇总逻辑
+   - `calculateCurrencyTotalAmounts()` 函数（模块级导出）
+   - 桌面端自定义日期全量汇总也调用此函数
 
-否则桌面端月份和自定义日期会出现统计口径不一致。
-
----
+月度汇总的 `calculateMonthTotalAmount()` 内联了独立的按币种累加逻辑，规则和 `calculateCurrencyTotalAmounts()` 一致但未经共享抽象。如后续规则变更，建议将月度汇总中的按币种部分也迁至 `calculateCurrencyTotalAmounts()`。
 
 ### 8.3 移动端总额区域后续可继续优化
 
@@ -394,9 +387,100 @@ go build ./...
 - 桌面端自定义日期总额展示
 - 月份 / 自定义日期多币种总额展示
 - 移动端总额展示与换行优化
+- 代码审查与修复（详见第 11 节）
 
 如果后续继续开发，最值得优先关注的是：
 
-1. `list/all` 在超大数据量下是否真的等价于“全量”
-2. 月度汇总与自定义汇总的规则是否始终保持一致
+1. `list/all` 在超大数据量下的响应性能
+2. 月度 `calculateMonthTotalAmount()` 中的按币种逻辑是否可迁至 `calculateCurrencyTotalAmounts()` 共享
 3. 移动端总额区域是否还需要进一步压缩布局
+
+---
+
+## 11. 代码审查与修复
+
+本轮代码审查针对第二部分（总收入/总支出增强）发现了以下问题并已修复。
+
+### 11.1 严重：`loadFullRangeTotalAmount` 失败阻塞主列表
+
+**问题：** `reload()` 将 `loadFullRangeTotalAmount()` 放在 `Promise.all` 中，如果全量 API 失败，整个交易列表也加载失败。
+
+**修复：** 加上 `.catch(() => {})`，总额失败不影响主列表。额度是辅助信息，不应影响主功能的使用。
+
+**涉及文件：** `src/views/desktop/transactions/ListPage.vue`
+
+### 11.2 中高：不必要的 API 调用
+
+**问题：** 每次 `reload()` 都无条件调用 `getAllTransactions` 拉取全量数据：
+- 用户关闭 “显示总额” 设置时也调用
+- 翻页/改每页条数时也重新拉取
+
+**修复：** 
+- 加 `showTotalAmountInTransactionListPage`、`!queryMonthlyData`、`pageType === List.type` 三重守卫
+- 引入 `lastTotalFilterKey` 缓存筛选条件 key，仅筛选条件变化时才重新拉取
+
+**涉及文件：** `src/views/desktop/transactions/ListPage.vue`
+
+### 11.3 中：并发 reload 竞态
+
+**问题：** 快速切换筛选条件时，多个 `loadFullRangeTotalAmount()` 请求并发，先返回的慢请求可能覆盖后返回的正确结果。
+
+**修复：** 引入 `fullRangeTotalRequestId` 递增计数器，只有最新请求的结果才写入 `fullRangeTotalAmount`，旧请求静默丢弃。
+
+**涉及文件：** `src/views/desktop/transactions/ListPage.vue`
+
+### 11.4 建议：`getDisplayCurrencyTotalAmounts` 类型简化
+
+**问题：** 函数签名包含从未使用的 `incomeAmount`/`expenseAmount` 联合类型分支。
+
+**修复：** 简化为仅接受 `TransactionCurrencyAmount[]`，移除 `type` 参数和对应的 `TransactionListDisplayTotalAmountItem` 接口。
+
+**涉及文件：** `src/views/desktop/transactions/ListPage.vue`
+
+### 11.5 建议：桌面端自定义日期总额计算逻辑去重
+
+**问题：** 桌面端 `calculateDisplayTotalAmountByTransactions` 与 store 中 `calculateMonthTotalAmount` 的按币种汇总逻辑重复。
+
+**修复：** 将公共逻辑提取为 `calculateCurrencyTotalAmounts()` 导出函数，放在 `src/stores/transaction.ts` 模块级，桌面端调用此函数替代本地实现。后续规则变更只需改一处。
+
+**涉及文件：** `src/stores/transaction.ts`（新增函数）、`src/views/desktop/transactions/ListPage.vue`（删除重复代码）
+
+### 11.6 建议：死代码清理
+
+**问题：** `loadFullRangeTotalAmount` 中 `mustHavePictures` 的值恒为 `false`（函数入参已保证 `pageType` 只能是 `List.type`）。
+
+**修复：** 直接写 `false`。
+
+**涉及文件：** `src/views/desktop/transactions/ListPage.vue`
+
+### 11.7 修复：移动端总额展示框限制为仅自定义日期范围
+
+**问题：** 移动端交易列表新增的总收入/总支出展示框在所有日期选项（今天、昨天、本月、上月等）下都显示了。原需求是该展示框仅用于自定义日期范围，其他选项已有各自的总额展示方式。
+
+**修复：** 在 `v-if` 条件中增加 `query.dateType === DateRange.Custom.type`，确保仅自定义日期时才显示该卡片。
+
+**涉及文件：** `src/views/mobile/transactions/ListPage.vue`
+
+### 11.8 后端审查
+
+后端改动来自金额排序功能（commit `f151127b`），经检查：
+
+- `amountSortOrder` 在 API → Service → SQL 三层正确透传
+- `disableTimeSort` 在金额排序时正确跳过 post-processing 的时间排序
+- SQL 排序 `amount asc/desc, transaction_time desc` 语义正确
+- `GetAllSpecifiedTransactions()` 使用游标循环分页，无硬性数量上限
+- 单测覆盖 asc/desc/空/非法/无参数 5 种情况
+
+**结论：后端无需修改。**
+
+---
+
+## 12. 校验方式
+
+```bash
+# 前端类型检查
+npx vue-tsc --noEmit
+
+# 后端编译
+go build ./...
+```
