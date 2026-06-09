@@ -634,6 +634,13 @@ export interface TransactionListInMonthByPageRequest {
 }
 
 export interface TransactionAllListRequest {
+    readonly type?: number;
+    readonly categoryIds?: string;
+    readonly accountIds?: string;
+    readonly tagFilter?: string;
+    readonly amountFilter?: string;
+    readonly keyword?: string;
+    readonly mustHavePictures?: boolean;
     readonly startTime: number;
     readonly endTime: number;
     readonly withPictures?: boolean;

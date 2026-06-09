@@ -94,6 +94,17 @@ export interface TransactionTotalAmount {
     incompleteIncome: boolean;
 }
 
+export interface TransactionCurrencyAmount {
+    readonly currency: string;
+    amount: number;
+    incomplete: boolean;
+}
+
+export interface TransactionTotalAmountByCurrency {
+    expense: TransactionCurrencyAmount[];
+    income: TransactionCurrencyAmount[];
+}
+
 export interface TransactionMonthList {
     readonly year: number;
     readonly month: number; // 1-based (1 = January, 12 = December)
@@ -101,6 +112,7 @@ export interface TransactionMonthList {
     opened: boolean;
     readonly items: Transaction[];
     readonly totalAmount: TransactionTotalAmount;
+    readonly totalAmountByCurrency: TransactionTotalAmountByCurrency;
     readonly dailyTotalAmounts: Record<string, TransactionTotalAmount>;
 }
 
@@ -240,6 +252,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
                             income: 0,
                             incompleteIncome: true
                         },
+                        totalAmountByCurrency: {
+                            expense: [],
+                            income: []
+                        },
                         dailyTotalAmounts: {}
                     };
 
@@ -339,6 +355,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
         let hasUnCalculatedTotalExpense = false;
         let hasUnCalculatedTotalIncome = false;
         const dailyTotalAmounts: Record<string, TransactionTotalAmount> = {};
+        const totalAmountsByCurrency: TransactionTotalAmountByCurrency = {
+            expense: [],
+            income: []
+        };
 
         const allAccountIdsMap: Record<string, boolean> = {};
         let totalAccountIdsCount = 0;
@@ -382,6 +402,49 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 continue;
             }
 
+            const originalAmount = amount;
+            const originalCurrency = account.currency;
+            let transferAsExpense = false;
+            let transferAsIncome = false;
+
+            if (transaction.type === TransactionType.Expense || transaction.type === TransactionType.Income) {
+                addTransactionCurrencyTotalAmount({
+                    totalAmountsByCurrency,
+                    currency: originalCurrency,
+                    amount: originalAmount,
+                    type: transaction.type,
+                    incomplete: false
+                });
+            } else if (transaction.type === TransactionType.Transfer && totalAccountIdsCount > 0) {
+                if (allAccountIdsMap[transaction.sourceAccountId] && allAccountIdsMap[transaction.destinationAccountId]) {
+                    // Do Nothing
+                } else if (transaction.sourceAccount && transaction.destinationAccount && allAccountIdsMap[transaction.sourceAccount.parentId] && allAccountIdsMap[transaction.destinationAccount.parentId]) {
+                    // Do Nothing
+                } else if (transaction.sourceAccount && allAccountIdsMap[transaction.sourceAccount.parentId] && allAccountIdsMap[transaction.destinationAccountId]) {
+                    // Do Nothing
+                } else if (transaction.destinationAccount && allAccountIdsMap[transaction.sourceAccountId] && allAccountIdsMap[transaction.destinationAccount.parentId]) {
+                    // Do Nothing
+                } else if (allAccountIdsMap[transaction.sourceAccountId] || (transaction.sourceAccount && allAccountIdsMap[transaction.sourceAccount.parentId])) {
+                    transferAsExpense = true;
+                    addTransactionCurrencyTotalAmount({
+                        totalAmountsByCurrency,
+                        currency: originalCurrency,
+                        amount: originalAmount,
+                        type: TransactionType.Expense,
+                        incomplete: false
+                    });
+                } else if (allAccountIdsMap[transaction.destinationAccountId] || (transaction.destinationAccount && allAccountIdsMap[transaction.destinationAccount.parentId])) {
+                    transferAsIncome = true;
+                    addTransactionCurrencyTotalAmount({
+                        totalAmountsByCurrency,
+                        currency: originalCurrency,
+                        amount: originalAmount,
+                        type: TransactionType.Income,
+                        incomplete: false
+                    });
+                }
+            }
+
             if (account.currency !== defaultCurrency) {
                 const balance = exchangeRatesStore.getExchangedAmount(amount, account.currency, defaultCurrency);
 
@@ -389,7 +452,15 @@ export const useTransactionsStore = defineStore('transactions', () => {
                     if (transaction.type === TransactionType.Expense) {
                         hasUnCalculatedTotalExpense = true;
                         dailyTotalAmount.incompleteExpense = true;
+                        setTransactionCurrencyTotalAmountIncomplete(totalAmountsByCurrency.expense, account.currency);
                     } else if (transaction.type === TransactionType.Income) {
+                        hasUnCalculatedTotalIncome = true;
+                        dailyTotalAmount.incompleteIncome = true;
+                        setTransactionCurrencyTotalAmountIncomplete(totalAmountsByCurrency.income, account.currency);
+                    } else if (transaction.type === TransactionType.Transfer && transferAsExpense) {
+                        hasUnCalculatedTotalExpense = true;
+                        dailyTotalAmount.incompleteExpense = true;
+                    } else if (transaction.type === TransactionType.Transfer && transferAsIncome) {
                         hasUnCalculatedTotalIncome = true;
                         dailyTotalAmount.incompleteIncome = true;
                     }
@@ -406,22 +477,12 @@ export const useTransactionsStore = defineStore('transactions', () => {
             } else if (transaction.type === TransactionType.Income) {
                 totalIncome += amount;
                 dailyTotalAmount.income += amount;
-            } else if (transaction.type === TransactionType.Transfer && totalAccountIdsCount > 0) {
-                if (allAccountIdsMap[transaction.sourceAccountId] && allAccountIdsMap[transaction.destinationAccountId]) {
-                    // Do Nothing
-                } else if (transaction.sourceAccount && transaction.destinationAccount && allAccountIdsMap[transaction.sourceAccount.parentId] && allAccountIdsMap[transaction.destinationAccount.parentId]) {
-                    // Do Nothing
-                } else if (transaction.sourceAccount && allAccountIdsMap[transaction.sourceAccount.parentId] && allAccountIdsMap[transaction.destinationAccountId]) {
-                    // Do Nothing
-                } else if (transaction.destinationAccount && allAccountIdsMap[transaction.sourceAccountId] && allAccountIdsMap[transaction.destinationAccount.parentId]) {
-                    // Do Nothing
-                } else if (allAccountIdsMap[transaction.sourceAccountId] || (transaction.sourceAccount && allAccountIdsMap[transaction.sourceAccount.parentId])) {
-                    totalExpense += amount;
-                    dailyTotalAmount.expense += amount;
-                } else if (allAccountIdsMap[transaction.destinationAccountId] || (transaction.destinationAccount && allAccountIdsMap[transaction.destinationAccount.parentId])) {
-                    totalIncome += amount;
-                    dailyTotalAmount.income += amount;
-                }
+            } else if (transaction.type === TransactionType.Transfer && transferAsExpense) {
+                totalExpense += amount;
+                dailyTotalAmount.expense += amount;
+            } else if (transaction.type === TransactionType.Transfer && transferAsIncome) {
+                totalIncome += amount;
+                dailyTotalAmount.income += amount;
             }
         }
 
@@ -429,6 +490,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
         transactionMonthList.totalAmount.incompleteExpense = incomplete || hasUnCalculatedTotalExpense;
         transactionMonthList.totalAmount.income = Math.trunc(totalIncome);
         transactionMonthList.totalAmount.incompleteIncome = incomplete || hasUnCalculatedTotalIncome;
+        replaceTransactionCurrencyTotalAmounts(transactionMonthList.totalAmountByCurrency, totalAmountsByCurrency, incomplete);
 
         for (const day of keys(transactionMonthList.dailyTotalAmounts)) {
             delete transactionMonthList.dailyTotalAmounts[day];
@@ -442,6 +504,60 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 incompleteIncome: incomplete || dailyTotalAmount.incompleteIncome
             };
         }
+    }
+
+    function addTransactionCurrencyTotalAmount({ totalAmountsByCurrency, currency, amount, type, incomplete }: { totalAmountsByCurrency: TransactionTotalAmountByCurrency, currency: string, amount: number, type: number, incomplete: boolean }): void {
+        if (type === TransactionType.Expense) {
+            addCurrencyAmountItem(totalAmountsByCurrency.expense, currency, amount, incomplete);
+        } else if (type === TransactionType.Income) {
+            addCurrencyAmountItem(totalAmountsByCurrency.income, currency, amount, incomplete);
+        }
+    }
+
+    function addCurrencyAmountItem(items: TransactionCurrencyAmount[], currency: string, amount: number, incomplete: boolean): void {
+        let item = items.find(item => item.currency === currency);
+
+        if (!item) {
+            item = {
+                currency,
+                amount: 0,
+                incomplete: false
+            };
+            items.push(item);
+        }
+
+        item.amount += amount;
+        item.incomplete = item.incomplete || incomplete;
+    }
+
+    function setTransactionCurrencyTotalAmountIncomplete(items: TransactionCurrencyAmount[], currency: string): void {
+        let item = items.find(item => item.currency === currency);
+
+        if (!item) {
+            item = {
+                currency,
+                amount: 0,
+                incomplete: true
+            };
+            items.push(item);
+            return;
+        }
+
+        item.incomplete = true;
+    }
+
+    function replaceTransactionCurrencyTotalAmounts(target: TransactionTotalAmountByCurrency, source: TransactionTotalAmountByCurrency, incomplete: boolean): void {
+        target.expense.splice(0, target.expense.length, ...source.expense.map(item => ({
+            currency: item.currency,
+            amount: Math.trunc(item.amount),
+            incomplete: incomplete || item.incomplete
+        })));
+
+        target.income.splice(0, target.income.length, ...source.income.map(item => ({
+            currency: item.currency,
+            amount: Math.trunc(item.amount),
+            incomplete: incomplete || item.incomplete
+        })));
     }
 
     function fillTransactionObject(transaction: Transaction): void {
