@@ -173,7 +173,7 @@
         </f7-list>
 
         <f7-list strong inset dividers class="margin-vertical transaction-summary-list"
-                 v-if="!loading && !noTransaction && pageType === TransactionListPageType.List.type && showTotalAmountInTransactionListPage && currentListTotalAmount">
+                 v-if="!loading && !noTransaction && pageType === TransactionListPageType.List.type && showTotalAmountInTransactionListPage && currentListTotalAmount && query.dateType === DateRange.Custom.type">
             <f7-list-item>
                 <template #title>
                     <div class="display-flex justify-content-space-between align-items-flex-start transaction-summary-content">
