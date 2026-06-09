@@ -172,40 +172,6 @@
             <f7-list-item :title="tt('No transaction data')"></f7-list-item>
         </f7-list>
 
-        <f7-list strong inset dividers class="margin-vertical transaction-summary-list"
-                 v-if="!loading && !noTransaction && pageType === TransactionListPageType.List.type && showTotalAmountInTransactionListPage && currentListTotalAmount && query.dateType === DateRange.Custom.type">
-            <f7-list-item>
-                <template #title>
-                    <div class="display-flex justify-content-space-between align-items-flex-start transaction-summary-content">
-                        <div class="transaction-summary-item">
-                            <div class="transaction-summary-label">
-                                {{ queryAllFilterAccountIdsCount ? tt('Total Inflows') : tt('Total Income') }}
-                            </div>
-                            <div class="transaction-summary-values text-income">
-                                <div class="transaction-summary-value"
-                                     :key="`income_${idx}`"
-                                     v-for="(amount, idx) in currentListTotalAmount.income">
-                                    {{ amount }}
-                                </div>
-                            </div>
-                        </div>
-                        <div class="transaction-summary-item">
-                            <div class="transaction-summary-label">
-                                {{ queryAllFilterAccountIdsCount ? tt('Total Outflows') : tt('Total Expense') }}
-                            </div>
-                            <div class="transaction-summary-values text-expense">
-                                <div class="transaction-summary-value"
-                                     :key="`expense_${idx}`"
-                                     v-for="(amount, idx) in currentListTotalAmount.expense">
-                                    {{ amount }}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </template>
-            </f7-list-item>
-        </f7-list>
-
         <f7-list strong inset dividers media-list class="transaction-info-list margin-vertical"
                  v-if="!loading && !noTransaction && query.amountSortOrder">
             <f7-list-item swipeout chevron-center
@@ -818,7 +784,6 @@ import { useAccountsStore } from '@/stores/account.ts';
 import { useTransactionCategoriesStore } from '@/stores/transactionCategory.ts';
 import { useTransactionTagsStore } from '@/stores/transactionTag.ts';
 import {
-    type TransactionCurrencyAmount,
     type TransactionMonthList,
     useTransactionsStore
 } from '@/stores/transaction.ts';
@@ -950,11 +915,6 @@ const showCustomDateRangeSheet = ref<boolean>(false);
 const showCustomMonthSheet = ref<boolean>(false);
 const showDeleteActionSheet = ref<boolean>(false);
 
-interface TransactionSummaryDisplayTotalAmount {
-    income: string[];
-    expense: string[];
-}
-
 const textDirection = computed<TextDirection>(() => getCurrentLanguageTextDirection());
 const isDarkMode = computed<boolean>(() => environmentsStore.framework7DarkMode || false);
 
@@ -1037,25 +997,6 @@ const flatTransactionItems = computed<Transaction[]>(() => {
     return items;
 });
 
-const currentListTotalAmount = computed<TransactionSummaryDisplayTotalAmount | null>(() => {
-    if (!transactions.value || !transactions.value.length) {
-        return null;
-    }
-
-    const incomeItems: TransactionCurrencyAmount[] = [];
-    const expenseItems: TransactionCurrencyAmount[] = [];
-
-    for (const transactionMonthList of transactions.value) {
-        mergeCurrencyTotalAmounts(incomeItems, transactionMonthList.totalAmountByCurrency.income);
-        mergeCurrencyTotalAmounts(expenseItems, transactionMonthList.totalAmountByCurrency.expense);
-    }
-
-    return {
-        income: getDisplayCurrencyTotalAmounts(incomeItems),
-        expense: getDisplayCurrencyTotalAmounts(expenseItems)
-    };
-});
-
 function getDisplayYear(transaction: Transaction): string {
     const dateTime = parseDateTimeFromUnixTimeWithTimezoneOffset(transaction.time, transaction.utcOffset);
     return formatNumberToLocalizedNumeralsWithoutDigitGrouping(dateTime.getGregorianCalendarYear());
@@ -1064,33 +1005,6 @@ function getDisplayYear(transaction: Transaction): string {
 function getDisplayMonthDay(transaction: Transaction): string {
     const dateTime = parseDateTimeFromUnixTimeWithTimezoneOffset(transaction.time, transaction.utcOffset);
     return formatDateTimeToShortMonthDay(dateTime);
-}
-
-function mergeCurrencyTotalAmounts(target: TransactionCurrencyAmount[], source: TransactionCurrencyAmount[]): void {
-    for (const sourceItem of source) {
-        const targetItem = target.find(item => item.currency === sourceItem.currency);
-
-        if (targetItem) {
-            targetItem.amount += sourceItem.amount;
-            targetItem.incomplete = targetItem.incomplete || sourceItem.incomplete;
-        } else {
-            target.push({
-                currency: sourceItem.currency,
-                amount: sourceItem.amount,
-                incomplete: sourceItem.incomplete
-            });
-        }
-    }
-}
-
-function getDisplayCurrencyTotalAmounts(items: TransactionCurrencyAmount[]): string[] {
-    const displayItems = items.length ? items : [{
-        currency: defaultCurrency.value,
-        amount: 0,
-        incomplete: false
-    }];
-
-    return displayItems.map(item => getDisplayMonthTotalAmount(item.amount, item.currency, '', item.incomplete));
 }
 
 function getTransactionMonthTitleDomId(yearMonth: TextualYearMonth): string {
@@ -1820,47 +1734,6 @@ init();
 .list.transaction-amount-list .transaction-amount-statistics > span {
     margin-inline-start: 8px;
     font-weight: normal;
-}
-
-.list.transaction-summary-list .transaction-summary-content {
-    gap: 12px;
-}
-
-.list.transaction-summary-list .item-title {
-    white-space: normal;
-    overflow: visible;
-    text-overflow: unset;
-}
-
-.list.transaction-summary-list .item-inner {
-    display: block;
-    min-height: 0;
-    padding-top: 10px;
-    padding-bottom: 10px;
-}
-
-.list.transaction-summary-list .transaction-summary-item {
-    min-width: 0;
-    flex: 1;
-}
-
-.list.transaction-summary-list .transaction-summary-label {
-    font-size: 12px;
-    opacity: 0.7;
-}
-
-.list.transaction-summary-list .transaction-summary-value {
-    font-size: 14px;
-    line-height: 1.4;
-    word-break: break-word;
-}
-
-.list.transaction-summary-list .transaction-summary-values {
-    margin-top: 4px;
-}
-
-.list.transaction-summary-list .transaction-summary-values .transaction-summary-value + .transaction-summary-value {
-    margin-top: 2px;
 }
 
 .list.transaction-info-list li.transaction-info .item-media + .item-inner {
