@@ -279,9 +279,10 @@
             </f7-list-item>
         </f7-list>
 
-        <f7-block class="combination-list-wrapper"
-                  :class="{ 'margin-vertical': idx > 0 || pageType === TransactionListPageType.Calendar.type || showSearchbar, 'margin-vertical-half': idx === 0 && pageType !== TransactionListPageType.Calendar.type && !showSearchbar, 'no-accordion-toggle': pageType !== TransactionListPageType.List.type && pageType !== TransactionListPageType.Gallery.type }"
-                  :key="idx" v-for="(transactionMonthList, idx) in transactions" v-if="!query.amountSortOrder">
+        <template v-for="(transactionMonthList, idx) in transactions" :key="idx">
+            <f7-block class="combination-list-wrapper"
+                      :class="{ 'margin-vertical': idx > 0 || pageType === TransactionListPageType.Calendar.type || showSearchbar, 'margin-vertical-half': idx === 0 && pageType !== TransactionListPageType.Calendar.type && !showSearchbar, 'no-accordion-toggle': pageType !== TransactionListPageType.List.type && pageType !== TransactionListPageType.Gallery.type }"
+                      v-if="!query.amountSortOrder">
             <f7-accordion-item :opened="transactionMonthList.opened"
                                @accordion:open="collapseTransactionMonthList(transactionMonthList, false)"
                                @accordion:opened="onTransactionMonthListCollapseStateChanged"
@@ -440,7 +441,7 @@
                     </f7-list>
                 </f7-accordion-content>
             </f7-accordion-item>
-        </f7-block>
+            </f7-block>
         </template>
 
         <f7-block class="text-align-center" :class="{ 'disabled': loadingMore }" v-show="!loading && hasMoreTransaction"
