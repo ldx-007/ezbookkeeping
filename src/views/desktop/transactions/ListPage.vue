@@ -1185,7 +1185,7 @@ const currentMonthTotalAmount = computed<TransactionListDisplayTotalAmount | nul
             income: getDisplayMonthTotalAmount(transactionData.totalAmount.income, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteIncome),
             expense: getDisplayMonthTotalAmount(transactionData.totalAmount.expense, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteExpense),
             incomeInDefaultCurrency: getDisplayMonthTotalAmount(transactionData.totalAmount.income, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteIncome, true),
-            expenseInDefaultCurrency: getDisplayMonthTotalAmount(transactionData.totalAmount.expense, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteExpense, true) (upd: 桌面端添加总支出总收入)
+            expenseInDefaultCurrency: getDisplayMonthTotalAmount(transactionData.totalAmount.expense, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteExpense, true)
         };
 
         return displayMonthlyTotalAmount;
@@ -1201,7 +1201,7 @@ function getDisplayCurrencyTotalAmounts(items: TransactionCurrencyAmount[]): str
         for (const item of items) {
             displayItems.push({
                 currency: item.currency || selectedAccountDefaultCurrency.value,
-                amount: item.amount (upd: 桌面端添加总支出总收入)
+                amount: item.amount
             });
         }
     }
