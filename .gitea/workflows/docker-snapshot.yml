@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - '1.*-feat'
 
 jobs:
   build:
@@ -19,6 +20,8 @@ jobs:
           images: |
             ${{ secrets.DOCKER_REPO }}/ldx-007/ezbookkeeping
           tags: |
+            type=branch
+            type=raw,value=latest,enable=${{ github.ref_name == vars.LATEST_BRANCH }}
             type=raw,value=SNAPSHOT-{{date 'YYYYMMDD'}}
             type=raw,value=latest-snapshot
             type=sha,format=short,prefix=SNAPSHOT-
