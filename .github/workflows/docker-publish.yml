@@ -3,9 +3,10 @@ name: Build and Push Docker Image to GHCR
 on:
   push:
     branches:
-      - v1.5.1-feat
+      - 'v1.5.1-feat'
+      - '1.*-feat'
     tags:
-      - v*
+      - 'v*'
 
 jobs:
   build-and-push:
@@ -39,7 +40,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=tag
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/v1.5.1-feat' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/1.6.1-feat' }}
 
       - name: Set build time variables
         id: time
