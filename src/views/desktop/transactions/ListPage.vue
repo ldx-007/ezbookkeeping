@@ -1389,7 +1389,7 @@ function reload(force: boolean, init: boolean): void {
         const filterKey = `${pageType.value}|${query.value.dateType}|${query.value.minTime}|${query.value.maxTime}|${query.value.type}|${query.value.categoryIds}|${query.value.accountIds}|${query.value.tagFilter}|${query.value.amountFilter}|${query.value.keyword}`;
         totalsFilterChanged = filterKey !== lastTotalFilterKey;
 
-        if (totalsFilterChanged) {
+        if (totalsFilterChanged || force) {
             fullRangeTotalAmount.value = null;
             lastTotalFilterKey = filterKey;
         }
@@ -1404,7 +1404,7 @@ function reload(force: boolean, init: boolean): void {
         transactionTagsStore.loadAllTags({ force: false })
     ];
 
-    if (shouldLoadTotals && totalsFilterChanged) {
+    if (shouldLoadTotals && (totalsFilterChanged || force || !fullRangeTotalAmount.value)) {
         loadPromises.push(loadFullRangeTotalAmount().catch(() => {}));
     }
 
@@ -1815,6 +1815,7 @@ function add(template?: TransactionTemplate, autoRecognizeClipboardText?: string
             snackbar.value?.showMessage(result.message);
         }
 
+        fullRangeTotalAmount.value = null;
         reload(false, false);
     }).catch(error => {
         if (error) {
@@ -1859,6 +1860,7 @@ function addByRecognizingImage(): void {
                 snackbar.value?.showMessage(result.message);
             }
 
+            fullRangeTotalAmount.value = null;
             reload(false, false);
         }).catch(error => {
             if (error) {
@@ -1870,6 +1872,7 @@ function addByRecognizingImage(): void {
 
 function importTransaction(): void {
     importDialog.value?.open().then(() => {
+        fullRangeTotalAmount.value = null;
         reload(false, false);
     }).catch(error => {
         if (error) {
@@ -1919,6 +1922,7 @@ function show(transaction: Transaction): void {
             snackbar.value?.showMessage(result.message);
         }
 
+        fullRangeTotalAmount.value = null;
         reload(false, false);
     }).catch(error => {
         if (error) {
