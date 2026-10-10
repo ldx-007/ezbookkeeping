@@ -336,7 +336,7 @@
                                             @update:model-value="scrollAmountMenuToSelectedItem">
                                         <template #activator="{ props }">
                                             <div class="d-flex align-center cursor-pointer"
-                                                 :class="{ 'readonly': loading, 'text-primary': query.amountFilter }" v-bind="props">
+                                                 :class="{ 'readonly': loading, 'text-primary': query.amountFilter || query.amountSortOrder }" v-bind="props">
                                                 <span>{{ tt('Amount') }}</span>
                                                 <v-icon :icon="mdiMenuDown" />
                                             </div>
@@ -379,6 +379,28 @@
                                                     </v-list-item-title>
                                                 </v-list-item>
                                             </template>
+                                            <v-divider class="my-1"></v-divider>
+                                            <v-list-subheader class="text-body-medium font-weight-bold">{{ tt('Sort') }}</v-list-subheader>
+                                            <v-list-item class="text-body-medium" density="compact"
+                                                           :class="{ 'list-item-selected': query.amountSortOrder === AmountSortOrderType.AmountAscending.type }"
+                                                           :append-icon="(query.amountSortOrder === AmountSortOrderType.AmountAscending.type ? mdiCheck : undefined)">
+                                                <v-list-item-title class="cursor-pointer"
+                                                                   @click="changeAmountSortOrder(AmountSortOrderType.AmountAscending.type)">
+                                                    <div class="d-flex align-center">
+                                                        <span class="text-body-medium ms-3">{{ tt(AmountSortOrderType.AmountAscending.name) }}</span>
+                                                    </div>
+                                                </v-list-item-title>
+                                            </v-list-item>
+                                            <v-list-item class="text-body-medium" density="compact"
+                                                           :class="{ 'list-item-selected': query.amountSortOrder === AmountSortOrderType.AmountDescending.type }"
+                                                           :append-icon="(query.amountSortOrder === AmountSortOrderType.AmountDescending.type ? mdiCheck : undefined)">
+                                                <v-list-item-title class="cursor-pointer"
+                                                                   @click="changeAmountSortOrder(AmountSortOrderType.AmountDescending.type)">
+                                                    <div class="d-flex align-center">
+                                                        <span class="text-body-medium ms-3">{{ tt(AmountSortOrderType.AmountDescending.name) }}</span>
+                                                    </div>
+                                                </v-list-item-title>
+                                            </v-list-item>
                                         </v-list>
                                     </v-menu>
                                 </th>
@@ -724,7 +746,7 @@ import { useUserStore } from '@/stores/user.ts';
 import { useAccountsStore } from '@/stores/account.ts';
 import { useTransactionCategoriesStore } from '@/stores/transactionCategory.ts';
 import { useTransactionTagsStore } from '@/stores/transactionTag.ts';
-import { useTransactionsStore } from '@/stores/transaction.ts';
+import { useTransactionsStore, type TransactionCurrencyAmount, calculateCurrencyTotalAmounts } from '@/stores/transaction.ts';
 import { useTransactionTemplatesStore } from '@/stores/transactionTemplate.ts';
 import { useDesktopPageStore } from '@/stores/desktopPage.ts';
 
@@ -740,7 +762,7 @@ import {
     DateRangeScene,
     DateRange
 } from '@/core/datetime.ts';
-import { AmountFilterType } from '@/core/numeral.ts';
+import { AmountFilterType, AmountSortOrderType, type BigDecimal } from '@/core/numeral.ts';
 import { ThemeType } from '@/core/theme.ts';
 import { TransactionType } from '@/core/transaction.ts';
 import { TemplateType }  from '@/core/template.ts';
@@ -748,7 +770,7 @@ import { TemplateType }  from '@/core/template.ts';
 import { DEFAULT_PAGE_COUNTS } from '@/consts/page.ts';
 
 import type { TransactionCategory } from '@/models/transaction_category.ts';
-import { type Transaction, TransactionTagFilter } from '@/models/transaction.ts';
+import { Transaction, TransactionTagFilter } from '@/models/transaction.ts';
 import type { TransactionTemplate } from '@/models/transaction_template.ts';
 
 import {
@@ -792,6 +814,8 @@ import {
     isTransactionFromAIImageRecognitionEnabled
 } from '@/lib/server_settings.ts';
 import { scrollToSelectedItem, startDownloadFile } from '@/lib/ui/common.ts';
+import { BIG_DECIMAL_ZERO } from '@/lib/numeral.ts';
+import services from '@/lib/services.ts';
 import logger from '@/lib/logger.ts';
 
 import {
@@ -822,6 +846,7 @@ interface TransactionListProps {
     initAccountIds?: string,
     initTagFilter?: string,
     initAmountFilter?: string,
+    initAmountSortOrder?: string,
     initKeyword?: string,
     initMatchMode?: string
 }
@@ -940,6 +965,9 @@ const currentAmountFilterType = ref<string>('');
 const currentAmountFilterValue1 = ref<number>(0);
 const currentAmountFilterValue2 = ref<number>(0);
 const currentPageTransactions = ref<Transaction[]>([]);
+const fullRangeTotalAmount = ref<TransactionListDisplayTotalAmount | null>(null);
+let lastTotalFilterKey = '';
+let fullRangeTotalRequestId = 0;
 const categoryMenuState = ref<boolean>(false);
 const amountMenuState = ref<boolean>(false);
 const exportingData = ref<boolean>(false);
@@ -1128,6 +1156,10 @@ const skeletonData = computed<number[]>(() => {
 });
 
 const currentMonthTotalAmount = computed<TransactionListDisplayTotalAmount | null>(() => {
+    if (pageType.value !== TransactionListPageType.List.type || loading.value) {
+        return null;
+    }
+
     if (queryMonthlyData.value) {
         const transactionData = currentMonthTransactionData.value;
 
@@ -1146,9 +1178,96 @@ const currentMonthTotalAmount = computed<TransactionListDisplayTotalAmount | nul
 
         return displayMonthlyTotalAmount;
     } else {
-        return null;
+        return fullRangeTotalAmount.value;
     }
 });
+
+function getDisplayCurrencyTotalAmounts(items: TransactionCurrencyAmount[]): string {
+    const displayItems: { currency: string; amount: BigDecimal; incomplete: boolean }[] = [];
+
+    if (items.length) {
+        for (const item of items) {
+            displayItems.push({
+                currency: item.currency || selectedAccountDefaultCurrency.value,
+                amount: item.amount,
+                incomplete: item.incomplete
+            });
+        }
+    }
+
+    if (!displayItems.length) {
+        displayItems.push({
+            currency: selectedAccountDefaultCurrency.value,
+            amount: BIG_DECIMAL_ZERO,
+            incomplete: false
+        });
+    }
+
+    return displayItems.map(item => getDisplayMonthTotalAmount(item.amount, item.currency, '', item.incomplete)).join(' / ');
+}
+
+function loadFullRangeTotalAmount(): Promise<void> {
+    if (queryMonthlyData.value || pageType.value !== TransactionListPageType.List.type) {
+        fullRangeTotalAmount.value = null;
+        return Promise.resolve();
+    }
+
+    const requestId = ++fullRangeTotalRequestId;
+
+    return new Promise((resolve, reject) => {
+        services.getAllTransactions({
+            type: query.value.type,
+            categoryIds: query.value.categoryIds,
+            accountIds: query.value.accountIds,
+            tagFilter: query.value.tagFilter,
+            amountFilter: query.value.amountFilter,
+            keyword: query.value.keyword,
+            mustHavePictures: false,
+            startTime: query.value.minTime,
+            endTime: query.value.maxTime
+        }).then((response) => {
+            if (requestId !== fullRangeTotalRequestId) {
+                resolve(); // stale response, ignore
+                return;
+            }
+
+            const data = response.data;
+
+            if (!data || !data.success || !data.result) {
+                reject({ message: 'Unable to retrieve transaction overview' });
+                return;
+            }
+
+            const totalAmount = calculateCurrencyTotalAmounts(Transaction.ofMulti(data.result), query.value.accountIds, selectedAccountDefaultCurrency.value);
+
+            fullRangeTotalAmount.value = {
+                incomeIsZero: totalAmount.income.length === 0 || totalAmount.income.every(item => item.amount.isZero()),
+                expenseIsZero: totalAmount.expense.length === 0 || totalAmount.expense.every(item => item.amount.isZero()),
+                income: getDisplayCurrencyTotalAmounts(totalAmount.income),
+                expense: getDisplayCurrencyTotalAmounts(totalAmount.expense),
+                incomeInDefaultCurrency: getDisplayCurrencyTotalAmounts(totalAmount.income),
+                expenseInDefaultCurrency: getDisplayCurrencyTotalAmounts(totalAmount.expense)
+            };
+
+            resolve();
+        }).catch((error) => {
+            if (requestId !== fullRangeTotalRequestId) {
+                resolve(); // stale error, ignore
+                return;
+            }
+
+            fullRangeTotalAmount.value = null;
+
+            if (error.response && error.response.data && error.response.data.errorMessage) {
+                reject({ error: error.response.data });
+            } else if (!error.processed) {
+                reject({ message: 'Unable to retrieve transaction overview' });
+            } else {
+                reject(error);
+            }
+        });
+    });
+}
 
 function getCategoryListItemCheckedClass(category: TransactionCategory, queryCategoryIds: Record<string, boolean>): Record<string, boolean> {
     if (queryCategoryIds && queryCategoryIds[category.id]) {
@@ -1181,6 +1300,7 @@ function updateUrlWhenChanged(changed: boolean): void {
     if (changed) {
         loading.value = true;
         currentPageTransactions.value = [];
+        fullRangeTotalAmount.value = null;
         transactionsStore.clearTransactions();
         router.push(`/transaction/list?${transactionsStore.getTransactionListPageParams(pageType.value)}`);
     }
@@ -1208,6 +1328,7 @@ function init(initProps: TransactionListProps): void {
         accountIds: initProps.initAccountIds,
         tagFilter: initProps.initTagFilter,
         amountFilter: initProps.initAmountFilter || '',
+        amountSortOrder: initProps.initAmountSortOrder || '',
         keyword: initProps.initKeyword || '',
         matchMode: initProps.initMatchMode && parseInt(initProps.initMatchMode) >= 0 ? parseInt(initProps.initMatchMode) : undefined
     });
@@ -1257,11 +1378,33 @@ function reload(force: boolean, init: boolean): void {
     const isGalleryMode = pageType.value === TransactionListPageType.Gallery.type;
     const page = currentPage.value;
 
-    Promise.all([
+    const shouldLoadTotals = showTotalAmountInTransactionListPage.value && !queryMonthlyData.value && pageType.value === TransactionListPageType.List.type;
+    let totalsFilterChanged = false;
+
+    if (shouldLoadTotals) {
+        const filterKey = `${pageType.value}|${query.value.dateType}|${query.value.minTime}|${query.value.maxTime}|${query.value.type}|${query.value.categoryIds}|${query.value.accountIds}|${query.value.tagFilter}|${query.value.amountFilter}|${query.value.keyword}`;
+        totalsFilterChanged = filterKey !== lastTotalFilterKey;
+
+        if (totalsFilterChanged) {
+            fullRangeTotalAmount.value = null;
+            lastTotalFilterKey = filterKey;
+        }
+    } else {
+        fullRangeTotalAmount.value = null;
+        lastTotalFilterKey = '';
+    }
+
+    const loadPromises: Promise<unknown>[] = [
         accountsStore.loadAllAccounts({ force: false }),
         transactionCategoriesStore.loadAllCategories({ force: false }),
         transactionTagsStore.loadAllTags({ force: false })
-    ]).then(() => {
+    ];
+
+    if (shouldLoadTotals && totalsFilterChanged) {
+        loadPromises.push(loadFullRangeTotalAmount().catch(() => {}));
+    }
+
+    Promise.all(loadPromises).then(() => {
         if (init) {
             if (desktopPageStore.showAddTransactionDialogInTransactionList) {
                 desktopPageStore.resetShowAddTransactionDialogInTransactionList();
@@ -1628,6 +1771,20 @@ function changeAmountFilter(filterType: string): void {
     updateUrlWhenChanged(changed);
 }
 
+function changeAmountSortOrder(sortOrder: string): void {
+    if (query.value.amountSortOrder === sortOrder) {
+        sortOrder = '';
+    }
+
+    const changed = transactionsStore.updateTransactionListFilter({
+        amountSortOrder: sortOrder
+    });
+
+    amountMenuState.value = false;
+
+    updateUrlWhenChanged(changed);
+}
+
 function add(template?: TransactionTemplate, autoRecognizeClipboardText?: string): void {
     const currentUnixTime = getCurrentUnixTime();
 
@@ -1840,6 +1997,7 @@ onBeforeRouteUpdate((to) => {
             initAccountIds: (to.query['accountIds'] as string | null) || undefined,
             initTagFilter: (to.query['tagFilter'] as string | null) || undefined,
             initAmountFilter: (to.query['amountFilter'] as string | null) || undefined,
+            initAmountSortOrder: (to.query['amountSortOrder'] as string | null) || undefined,
             initKeyword: (to.query['keyword'] as string | null) || undefined,
             initMatchMode: (to.query['matchMode'] as string | null) || undefined
         });
