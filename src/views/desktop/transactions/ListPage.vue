@@ -382,6 +382,8 @@
                                             <v-divider class="my-1"></v-divider>
                                             <v-list-subheader class="text-body-medium font-weight-bold">{{ tt('Sort') }}</v-list-subheader>
                                             <v-list-item class="text-body-medium" density="compact"
+                                                           :value="AmountSortOrderType.AmountAscending.type"
+                                                           :active="query.amountSortOrder === AmountSortOrderType.AmountAscending.type"
                                                            :class="{ 'list-item-selected': query.amountSortOrder === AmountSortOrderType.AmountAscending.type }"
                                                            :append-icon="(query.amountSortOrder === AmountSortOrderType.AmountAscending.type ? mdiCheck : undefined)">
                                                 <v-list-item-title class="cursor-pointer"
@@ -392,6 +394,8 @@
                                                 </v-list-item-title>
                                             </v-list-item>
                                             <v-list-item class="text-body-medium" density="compact"
+                                                           :value="AmountSortOrderType.AmountDescending.type"
+                                                           :active="query.amountSortOrder === AmountSortOrderType.AmountDescending.type"
                                                            :class="{ 'list-item-selected': query.amountSortOrder === AmountSortOrderType.AmountDescending.type }"
                                                            :append-icon="(query.amountSortOrder === AmountSortOrderType.AmountDescending.type ? mdiCheck : undefined)">
                                                 <v-list-item-title class="cursor-pointer"
