@@ -1209,6 +1209,8 @@ function getDisplayCurrencyTotalAmounts(items: TransactionCurrencyAmount[]): str
         });
     }
 
+    displayItems.sort((item1, item2) => item1.currency < item2.currency ? -1 : 1);
+
     return displayItems.map(item => getDisplayMonthTotalAmount(item.amount, item.currency, '', item.incomplete)).join(' / ');
 }
 
