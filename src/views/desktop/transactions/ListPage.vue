@@ -1170,13 +1170,16 @@ const currentMonthTotalAmount = computed<TransactionListDisplayTotalAmount | nul
             return null;
         }
 
+        const income = transactionData.totalAmountByCurrency.income;
+        const expense = transactionData.totalAmountByCurrency.expense;
+
         const displayMonthlyTotalAmount: TransactionListDisplayTotalAmount = {
-            incomeIsZero: transactionData.totalAmount.income.isZero(),
-            expenseIsZero: transactionData.totalAmount.expense.isZero(),
-            income: getDisplayMonthTotalAmount(transactionData.totalAmount.income, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteIncome),
-            expense: getDisplayMonthTotalAmount(transactionData.totalAmount.expense, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteExpense),
-            incomeInDefaultCurrency: getDisplayMonthTotalAmount(transactionData.totalAmount.income, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteIncome, true),
-            expenseInDefaultCurrency: getDisplayMonthTotalAmount(transactionData.totalAmount.expense, selectedAccountDefaultCurrency.value, '', transactionData.totalAmount.incompleteExpense, true)
+            incomeIsZero: income.length === 0 || income.every(item => item.amount.isZero()),
+            expenseIsZero: expense.length === 0 || expense.every(item => item.amount.isZero()),
+            income: getDisplayCurrencyTotalAmounts(income),
+            expense: getDisplayCurrencyTotalAmounts(expense),
+            incomeInDefaultCurrency: getDisplayCurrencyTotalAmounts(income),
+            expenseInDefaultCurrency: getDisplayCurrencyTotalAmounts(expense)
         };
 
         return displayMonthlyTotalAmount;
