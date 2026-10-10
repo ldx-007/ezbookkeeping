@@ -405,6 +405,7 @@ func startWebServer(c *core.CliContext) error {
 			apiV1Route.GET("/transactions/list.json", bindApi(api.Transactions.TransactionListHandler, config))
 			apiV1Route.GET("/transactions/list/by_month.json", bindApi(api.Transactions.TransactionMonthListHandler, config))
 			apiV1Route.GET("/transactions/list/all.json", bindApi(api.Transactions.TransactionListAllHandler, config))
+			apiV1Route.GET("/transactions/sum.json", bindApi(api.Transactions.TransactionSumHandler, config))
 			apiV1Route.GET("/transactions/reconciliation_statements.json", bindApi(api.Transactions.TransactionReconciliationStatementHandler, config))
 			apiV1Route.GET("/transactions/statistics.json", bindApi(api.Transactions.TransactionStatisticsHandler, config))
 			apiV1Route.GET("/transactions/statistics/trends.json", bindApi(api.Transactions.TransactionStatisticsTrendsHandler, config))

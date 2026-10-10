@@ -103,6 +103,68 @@ func (s *TransactionService) GetAllSpecifiedTransactions(c core.Context, uid int
 	return allTransactions, nil
 }
 
+// GetTransactionSumByAccount returns income and expense amounts grouped by account for all transactions that match given conditions
+func (s *TransactionService) GetTransactionSumByAccount(c core.Context, uid int64, maxTransactionTime int64, minTransactionTime int64, transactionType models.TransactionType, categoryIds []int64, accountIds []int64, tagFilters []*models.TransactionTagFilter, noTags bool, amountFilter string, keyword string, matchMode core.MatchMode, pageCount int32) (map[int64]*big.Int, map[int64]*big.Int, error) {
+	allTransactions, err := s.GetAllSpecifiedTransactions(c, uid, maxTransactionTime, minTransactionTime, transactionType, categoryIds, accountIds, tagFilters, noTags, amountFilter, keyword, matchMode, false, pageCount, true)
+
+	if err != nil {
+		return nil, nil, err
+	}
+
+	incomeAmounts := make(map[int64]*big.Int)
+	expenseAmounts := make(map[int64]*big.Int)
+
+	selectedAccountIds := make(map[int64]struct{}, len(accountIds))
+
+	for i := 0; i < len(accountIds); i++ {
+		selectedAccountIds[accountIds[i]] = struct{}{}
+	}
+
+	for i := 0; i < len(allTransactions); i++ {
+		transaction := allTransactions[i]
+
+		switch transaction.Type {
+		case models.TRANSACTION_DB_TYPE_INCOME:
+			addTransactionAmountToAccountAmounts(incomeAmounts, transaction.AccountId, transaction.Amount)
+		case models.TRANSACTION_DB_TYPE_EXPENSE:
+			addTransactionAmountToAccountAmounts(expenseAmounts, transaction.AccountId, transaction.Amount)
+		case models.TRANSACTION_DB_TYPE_TRANSFER_OUT, models.TRANSACTION_DB_TYPE_TRANSFER_IN:
+			if len(selectedAccountIds) < 1 {
+				continue
+			}
+
+			sourceAccountId := transaction.AccountId
+			sourceAmount := transaction.Amount
+			destinationAccountId := transaction.RelatedAccountId
+			destinationAmount := transaction.RelatedAccountAmount
+
+			if transaction.Type == models.TRANSACTION_DB_TYPE_TRANSFER_IN {
+				sourceAccountId, destinationAccountId = destinationAccountId, sourceAccountId
+				sourceAmount, destinationAmount = destinationAmount, sourceAmount
+			}
+
+			_, sourceMatched := selectedAccountIds[sourceAccountId]
+			_, destinationMatched := selectedAccountIds[destinationAccountId]
+
+			if sourceMatched && !destinationMatched {
+				addTransactionAmountToAccountAmounts(expenseAmounts, sourceAccountId, sourceAmount)
+			} else if !sourceMatched && destinationMatched {
+				addTransactionAmountToAccountAmounts(incomeAmounts, destinationAccountId, destinationAmount)
+			}
+		}
+	}
+
+	return incomeAmounts, expenseAmounts, nil
+}
+
+func addTransactionAmountToAccountAmounts(amounts map[int64]*big.Int, accountId int64, amount int64) {
+	if totalAmount, exists := amounts[accountId]; exists {
+		totalAmount.Add(totalAmount, big.NewInt(amount))
+	} else {
+		amounts[accountId] = big.NewInt(amount)
+	}
+}
+
 // GetAllTransactionsInOneAccountWithAccountBalanceByMaxTime returns account statement within time range
 func (s *TransactionService) GetAllTransactionsInOneAccountWithAccountBalanceByMaxTime(c core.Context, uid int64, pageCount int32, maxTransactionTime int64, minTransactionTime int64, accountId int64, accountCategory models.AccountCategory) ([]*models.TransactionWithAccountBalance, *big.Int, *big.Int, *big.Int, *big.Int, error) {
 	if maxTransactionTime <= 0 {

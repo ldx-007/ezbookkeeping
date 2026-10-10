@@ -286,6 +286,19 @@ type TransactionAllListRequest struct {
 	TrimTag          bool            `form:"trim_tag"`
 }
 
+// TransactionSumRequest represents all parameters of transaction sum request
+type TransactionSumRequest struct {
+	Type         TransactionType `form:"type" binding:"min=0,max=4"`
+	CategoryIds  string          `form:"category_ids"`
+	AccountIds   string          `form:"account_ids"`
+	TagFilter    string          `form:"tag_filter" binding:"validTagFilter"`
+	AmountFilter string          `form:"amount_filter" binding:"validAmountFilter"`
+	Keyword      string          `form:"keyword"`
+	MatchMode    core.MatchMode  `form:"match_mode" binding:"min=0,max=1"`
+	StartTime    int64           `form:"start_time" binding:"min=0"`
+	EndTime      int64           `form:"end_time" binding:"min=0"`
+}
+
 // TransactionReconciliationStatementRequest represents all parameters of transaction reconciliation statement request
 type TransactionReconciliationStatementRequest struct {
 	AccountId int64 `form:"account_id,string" binding:"required,min=1"`
@@ -547,6 +560,18 @@ type TransactionAmountsAndCurrency struct {
 	Currency      string
 	IncomeAmount  *big.Int
 	ExpenseAmount *big.Int
+}
+
+// TransactionCurrencyAmountInfo represents an amount with currency in response
+type TransactionCurrencyAmountInfo struct {
+	Currency string `json:"currency"`
+	Amount   string `json:"amount"`
+}
+
+// TransactionSumResponse represents total income and expense amounts of transactions
+type TransactionSumResponse struct {
+	Income  []*TransactionCurrencyAmountInfo `json:"income"`
+	Expense []*TransactionCurrencyAmountInfo `json:"expense"`
 }
 
 // ParseTransactionTagFilter parses transaction tag filter from string

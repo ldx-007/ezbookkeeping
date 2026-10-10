@@ -750,7 +750,7 @@ import { useUserStore } from '@/stores/user.ts';
 import { useAccountsStore } from '@/stores/account.ts';
 import { useTransactionCategoriesStore } from '@/stores/transactionCategory.ts';
 import { useTransactionTagsStore } from '@/stores/transactionTag.ts';
-import { useTransactionsStore, type TransactionCurrencyAmount, calculateCurrencyTotalAmounts } from '@/stores/transaction.ts';
+import { useTransactionsStore, type TransactionCurrencyAmount } from '@/stores/transaction.ts';
 import { useTransactionTemplatesStore } from '@/stores/transactionTemplate.ts';
 import { useDesktopPageStore } from '@/stores/desktopPage.ts';
 
@@ -774,7 +774,7 @@ import { TemplateType }  from '@/core/template.ts';
 import { DEFAULT_PAGE_COUNTS } from '@/consts/page.ts';
 
 import type { TransactionCategory } from '@/models/transaction_category.ts';
-import { Transaction, TransactionTagFilter } from '@/models/transaction.ts';
+import { Transaction, TransactionTagFilter, type TransactionCurrencyAmountInfo } from '@/models/transaction.ts';
 import type { TransactionTemplate } from '@/models/transaction_template.ts';
 
 import {
@@ -818,7 +818,7 @@ import {
     isTransactionFromAIImageRecognitionEnabled
 } from '@/lib/server_settings.ts';
 import { scrollToSelectedItem, startDownloadFile } from '@/lib/ui/common.ts';
-import { BIG_DECIMAL_ZERO } from '@/lib/numeral.ts';
+import { BIG_DECIMAL_ZERO, parseBigDecimal } from '@/lib/numeral.ts';
 import services from '@/lib/services.ts';
 import logger from '@/lib/logger.ts';
 
@@ -970,7 +970,6 @@ const currentAmountFilterValue1 = ref<number>(0);
 const currentAmountFilterValue2 = ref<number>(0);
 const currentPageTransactions = ref<Transaction[]>([]);
 const fullRangeTotalAmount = ref<TransactionListDisplayTotalAmount | null>(null);
-let lastTotalFilterKey = '';
 let fullRangeTotalRequestId = 0;
 const categoryMenuState = ref<boolean>(false);
 const amountMenuState = ref<boolean>(false);
@@ -1219,14 +1218,13 @@ function loadFullRangeTotalAmount(): Promise<void> {
     const requestId = ++fullRangeTotalRequestId;
 
     return new Promise((resolve, reject) => {
-        services.getAllTransactions({
+        services.getTransactionSum({
             type: query.value.type,
             categoryIds: query.value.categoryIds,
             accountIds: query.value.accountIds,
             tagFilter: query.value.tagFilter,
             amountFilter: query.value.amountFilter,
             keyword: query.value.keyword,
-            mustHavePictures: false,
             startTime: query.value.minTime,
             endTime: query.value.maxTime
         }).then((response) => {
@@ -1242,15 +1240,16 @@ function loadFullRangeTotalAmount(): Promise<void> {
                 return;
             }
 
-            const totalAmount = calculateCurrencyTotalAmounts(Transaction.ofMulti(data.result), query.value.accountIds, selectedAccountDefaultCurrency.value);
+            const income = parseCurrencyTotalAmounts(data.result.income);
+            const expense = parseCurrencyTotalAmounts(data.result.expense);
 
             fullRangeTotalAmount.value = {
-                incomeIsZero: totalAmount.income.length === 0 || totalAmount.income.every(item => item.amount.isZero()),
-                expenseIsZero: totalAmount.expense.length === 0 || totalAmount.expense.every(item => item.amount.isZero()),
-                income: getDisplayCurrencyTotalAmounts(totalAmount.income),
-                expense: getDisplayCurrencyTotalAmounts(totalAmount.expense),
-                incomeInDefaultCurrency: getDisplayCurrencyTotalAmounts(totalAmount.income),
-                expenseInDefaultCurrency: getDisplayCurrencyTotalAmounts(totalAmount.expense)
+                incomeIsZero: income.length === 0 || income.every(item => item.amount.isZero()),
+                expenseIsZero: expense.length === 0 || expense.every(item => item.amount.isZero()),
+                income: getDisplayCurrencyTotalAmounts(income),
+                expense: getDisplayCurrencyTotalAmounts(expense),
+                incomeInDefaultCurrency: getDisplayCurrencyTotalAmounts(income),
+                expenseInDefaultCurrency: getDisplayCurrencyTotalAmounts(expense)
             };
 
             resolve();
@@ -1271,6 +1270,22 @@ function loadFullRangeTotalAmount(): Promise<void> {
             }
         });
     });
+}
+
+function parseCurrencyTotalAmounts(items: TransactionCurrencyAmountInfo[] | undefined): TransactionCurrencyAmount[] {
+    const results: TransactionCurrencyAmount[] = [];
+
+    if (items) {
+        for (const item of items) {
+            results.push({
+                currency: item.currency,
+                amount: parseBigDecimal(item.amount),
+                incomplete: false
+            });
+        }
+    }
+
+    return results;
 }
 
 function getCategoryListItemCheckedClass(category: TransactionCategory, queryCategoryIds: Record<string, boolean>): Record<string, boolean> {
@@ -1304,7 +1319,6 @@ function updateUrlWhenChanged(changed: boolean): void {
     if (changed) {
         loading.value = true;
         currentPageTransactions.value = [];
-        fullRangeTotalAmount.value = null;
         transactionsStore.clearTransactions();
         router.push(`/transaction/list?${transactionsStore.getTransactionListPageParams(pageType.value)}`);
     }
@@ -1383,19 +1397,9 @@ function reload(force: boolean, init: boolean): void {
     const page = currentPage.value;
 
     const shouldLoadTotals = showTotalAmountInTransactionListPage.value && !queryMonthlyData.value && pageType.value === TransactionListPageType.List.type;
-    let totalsFilterChanged = false;
 
-    if (shouldLoadTotals) {
-        const filterKey = `${pageType.value}|${query.value.dateType}|${query.value.minTime}|${query.value.maxTime}|${query.value.type}|${query.value.categoryIds}|${query.value.accountIds}|${query.value.tagFilter}|${query.value.amountFilter}|${query.value.keyword}`;
-        totalsFilterChanged = filterKey !== lastTotalFilterKey;
-
-        if (totalsFilterChanged || force) {
-            fullRangeTotalAmount.value = null;
-            lastTotalFilterKey = filterKey;
-        }
-    } else {
+    if (!shouldLoadTotals) {
         fullRangeTotalAmount.value = null;
-        lastTotalFilterKey = '';
     }
 
     const loadPromises: Promise<unknown>[] = [
@@ -1404,7 +1408,7 @@ function reload(force: boolean, init: boolean): void {
         transactionTagsStore.loadAllTags({ force: false })
     ];
 
-    if (shouldLoadTotals && (totalsFilterChanged || force || !fullRangeTotalAmount.value)) {
+    if (shouldLoadTotals) {
         loadPromises.push(loadFullRangeTotalAmount().catch(() => {}));
     }
 
@@ -1815,7 +1819,6 @@ function add(template?: TransactionTemplate, autoRecognizeClipboardText?: string
             snackbar.value?.showMessage(result.message);
         }
 
-        fullRangeTotalAmount.value = null;
         reload(false, false);
     }).catch(error => {
         if (error) {
@@ -1860,7 +1863,6 @@ function addByRecognizingImage(): void {
                 snackbar.value?.showMessage(result.message);
             }
 
-            fullRangeTotalAmount.value = null;
             reload(false, false);
         }).catch(error => {
             if (error) {
@@ -1872,7 +1874,6 @@ function addByRecognizingImage(): void {
 
 function importTransaction(): void {
     importDialog.value?.open().then(() => {
-        fullRangeTotalAmount.value = null;
         reload(false, false);
     }).catch(error => {
         if (error) {
@@ -1922,7 +1923,6 @@ function show(transaction: Transaction): void {
             snackbar.value?.showMessage(result.message);
         }
 
-        fullRangeTotalAmount.value = null;
         reload(false, false);
     }).catch(error => {
         if (error) {

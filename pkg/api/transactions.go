@@ -409,6 +409,135 @@ func (a *TransactionsApi) TransactionListAllHandler(c *core.WebContext) (any, *e
 	return transactionResult, nil
 }
 
+// TransactionSumHandler returns total income and expense amounts of all transactions matching given conditions for current user
+func (a *TransactionsApi) TransactionSumHandler(c *core.WebContext) (any, *errs.Error) {
+	var transactionSumReq models.TransactionSumRequest
+	err := c.ShouldBindQuery(&transactionSumReq)
+
+	if err != nil {
+		log.Warnf(c, "[transactions.TransactionSumHandler] parse request failed, because %s", err.Error())
+		return nil, errs.NewIncompleteOrIncorrectSubmissionError(err)
+	}
+
+	uid := c.GetCurrentUid()
+	_, err = a.users.GetUserById(c, uid)
+
+	if err != nil {
+		if !errs.IsCustomError(err) {
+			log.Errorf(c, "[transactions.TransactionSumHandler] failed to get user, because %s", err.Error())
+		}
+
+		return nil, errs.ErrUserNotFound
+	}
+
+	allAccountIds, err := a.accounts.GetAccountOrSubAccountIds(c, transactionSumReq.AccountIds, uid)
+
+	if err != nil {
+		log.Warnf(c, "[transactions.TransactionSumHandler] get account error, because %s", err.Error())
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+
+	allCategoryIds, err := a.transactionCategories.GetCategoryOrSubCategoryIds(c, transactionSumReq.CategoryIds, uid)
+
+	if err != nil {
+		log.Warnf(c, "[transactions.TransactionSumHandler] get transaction category error, because %s", err.Error())
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+
+	noTags := transactionSumReq.TagFilter == models.TransactionNoTagFilterValue
+	var tagFilters []*models.TransactionTagFilter
+
+	if !noTags {
+		tagFilters, err = models.ParseTransactionTagFilter(transactionSumReq.TagFilter)
+
+		if err != nil {
+			log.Warnf(c, "[transactions.TransactionSumHandler] parse transaction tag filters error, because %s", err.Error())
+			return nil, errs.Or(err, errs.ErrOperationFailed)
+		}
+	}
+
+	maxTransactionTime := int64(math.MaxInt64)
+	minTransactionTime := int64(0)
+
+	if transactionSumReq.EndTime > 0 {
+		maxTransactionTime = utils.GetMaxTransactionTimeFromUnixTime(transactionSumReq.EndTime)
+	}
+
+	if transactionSumReq.StartTime > 0 {
+		minTransactionTime = utils.GetMinTransactionTimeFromUnixTime(transactionSumReq.StartTime)
+	}
+
+	incomeAmounts, expenseAmounts, err := a.transactions.GetTransactionSumByAccount(c, uid, maxTransactionTime, minTransactionTime, transactionSumReq.Type, allCategoryIds, allAccountIds, tagFilters, noTags, transactionSumReq.AmountFilter, transactionSumReq.Keyword, transactionSumReq.MatchMode, pageCountForDataExport)
+
+	if err != nil {
+		log.Errorf(c, "[transactions.TransactionSumHandler] failed to get transaction sum for user \"uid:%d\", because %s", uid, err.Error())
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+
+	accounts, err := a.accounts.GetAllAccountsByUid(c, uid)
+
+	if err != nil {
+		log.Errorf(c, "[transactions.TransactionSumHandler] failed to get all accounts for user \"uid:%d\", because %s", uid, err.Error())
+		return nil, errs.Or(err, errs.ErrOperationFailed)
+	}
+
+	accountMap := a.accounts.GetAccountMapByList(accounts)
+	incomeAmountsMap := make(map[string]*big.Int)
+	expenseAmountsMap := make(map[string]*big.Int)
+
+	for accountId, incomeAmount := range incomeAmounts {
+		account, exists := accountMap[accountId]
+
+		if !exists {
+			log.Warnf(c, "[transactions.TransactionSumHandler] cannot find account for account \"id:%d\" of user \"uid:%d\"", accountId, uid)
+			continue
+		}
+
+		if totalAmount, exists := incomeAmountsMap[account.Currency]; exists {
+			totalAmount.Add(totalAmount, incomeAmount)
+		} else {
+			incomeAmountsMap[account.Currency] = big.NewInt(0).Set(incomeAmount)
+		}
+	}
+
+	for accountId, expenseAmount := range expenseAmounts {
+		account, exists := accountMap[accountId]
+
+		if !exists {
+			log.Warnf(c, "[transactions.TransactionSumHandler] cannot find account for account \"id:%d\" of user \"uid:%d\"", accountId, uid)
+			continue
+		}
+
+		if totalAmount, exists := expenseAmountsMap[account.Currency]; exists {
+			totalAmount.Add(totalAmount, expenseAmount)
+		} else {
+			expenseAmountsMap[account.Currency] = big.NewInt(0).Set(expenseAmount)
+		}
+	}
+
+	return &models.TransactionSumResponse{
+		Income:  buildTransactionCurrencyAmountInfos(incomeAmountsMap),
+		Expense: buildTransactionCurrencyAmountInfos(expenseAmountsMap),
+	}, nil
+}
+
+func buildTransactionCurrencyAmountInfos(amounts map[string]*big.Int) []*models.TransactionCurrencyAmountInfo {
+	allAmounts := make([]*models.TransactionCurrencyAmountInfo, 0, len(amounts))
+
+	for currency, amount := range amounts {
+		allAmounts = append(allAmounts, &models.TransactionCurrencyAmountInfo{
+			Currency: currency,
+			Amount:   amount.String(),
+		})
+	}
+
+	sort.Slice(allAmounts, func(i, j int) bool {
+		return allAmounts[i].Currency < allAmounts[j].Currency
+	})
+
+	return allAmounts
+}
+
 // TransactionReconciliationStatementHandler returns transaction reconciliation statement list of current user
 func (a *TransactionsApi) TransactionReconciliationStatementHandler(c *core.WebContext) (any, *errs.Error) {
 	var reconciliationStatementRequest models.TransactionReconciliationStatementRequest

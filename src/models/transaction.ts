@@ -660,6 +660,16 @@ export interface TransactionReconciliationStatementRequest {
     readonly endTime: number;
 }
 
+export interface TransactionCurrencyAmountInfo {
+    readonly currency: string;
+    readonly amount: string;
+}
+
+export interface TransactionSumResponse {
+    readonly income: TransactionCurrencyAmountInfo[];
+    readonly expense: TransactionCurrencyAmountInfo[];
+}
+
 export type TransactionGeoLocationResponse = Coordinate;
 
 export interface TransactionInfoResponse {
