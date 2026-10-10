@@ -302,10 +302,10 @@
                                     </small>
                                     <small class="transaction-amount-statistics" v-if="showTotalAmountInTransactionListPage && transactionMonthList.totalAmount">
                                         <span class="text-income">
-                                            {{ getDisplayMonthTotalAmount(transactionMonthList.totalAmount.income, selectedAccountDefaultCurrency, '+', transactionMonthList.totalAmount.incompleteIncome) }}
+                                            {{ getDisplayCurrencyTotalAmounts(transactionMonthList.totalAmountByCurrency.income, '+') }}
                                         </span>
                                         <span class="text-expense">
-                                            {{ getDisplayMonthTotalAmount(transactionMonthList.totalAmount.expense, selectedAccountDefaultCurrency, '-', transactionMonthList.totalAmount.incompleteExpense) }}
+                                            {{ getDisplayCurrencyTotalAmounts(transactionMonthList.totalAmountByCurrency.expense, '-') }}
                                         </span>
                                     </small>
                                     <f7-icon class="combination-list-chevron-icon" :f7="transactionMonthList.opened ? 'chevron_up' : 'chevron_down'"></f7-icon>
@@ -792,7 +792,7 @@ import { useEnvironmentsStore } from '@/stores/environment.ts';
 import { useAccountsStore } from '@/stores/account.ts';
 import { useTransactionCategoriesStore } from '@/stores/transactionCategory.ts';
 import { useTransactionTagsStore } from '@/stores/transactionTag.ts';
-import { type TransactionMonthList, useTransactionsStore } from '@/stores/transaction.ts';
+import { type TransactionCurrencyAmount, type TransactionMonthList, useTransactionsStore } from '@/stores/transaction.ts';
 
 import { keys } from '@/core/base.ts';
 import { TextDirection } from '@/core/text.ts';
@@ -803,7 +803,7 @@ import {
     DateRangeScene,
     DateRange
 } from '@/core/datetime.ts';
-import { AmountFilterType, AmountSortOrderType } from '@/core/numeral.ts';
+import { type BigDecimal, AmountFilterType, AmountSortOrderType } from '@/core/numeral.ts';
 import { TransactionType } from '@/core/transaction.ts';
 import type { TransactionCategory } from '@/models/transaction_category.ts';
 import { type Transaction, TransactionTagFilter } from '@/models/transaction.ts';
@@ -909,6 +909,32 @@ const {
     getTransactionTypeName,
     getTransactionPictureUrl
 } = useTransactionListPageBase();
+
+function getDisplayCurrencyTotalAmounts(items: TransactionCurrencyAmount[], symbol: string): string {
+    const displayItems: { currency: string; amount: BigDecimal; incomplete: boolean }[] = [];
+
+    if (items.length) {
+        for (const item of items) {
+            displayItems.push({
+                currency: item.currency || selectedAccountDefaultCurrency.value,
+                amount: item.amount,
+                incomplete: item.incomplete
+            });
+        }
+    }
+
+    if (!displayItems.length) {
+        displayItems.push({
+            currency: selectedAccountDefaultCurrency.value,
+            amount: BIG_DECIMAL_ZERO,
+            incomplete: false
+        });
+    }
+
+    displayItems.sort((item1, item2) => item1.currency < item2.currency ? -1 : 1);
+
+    return displayItems.map(item => getDisplayMonthTotalAmount(item.amount, item.currency, symbol, item.incomplete)).join(' / ');
+}
 
 const environmentsStore = useEnvironmentsStore();
 const accountsStore = useAccountsStore();
