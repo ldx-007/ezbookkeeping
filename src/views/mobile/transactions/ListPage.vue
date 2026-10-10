@@ -65,7 +65,7 @@
                 <span :class="{ 'tabbar-item-changed': query.accountIds }">{{ queryAccountName }}</span>
             </f7-link>
             <f7-link popover-open=".more-popover-menu" :class="{ 'disabled': loading }" :aria-label="tt('More')">
-                <f7-icon f7="ellipsis_vertical" :class="{ 'tabbar-item-changed': query.type > 0 || query.amountFilter || query.tagFilter }"></f7-icon>
+                <f7-icon f7="ellipsis_vertical" :class="{ 'tabbar-item-changed': query.type > 0 || query.amountFilter || query.amountSortOrder || query.tagFilter }"></f7-icon>
             </f7-link>
         </f7-toolbar>
 
@@ -176,9 +176,115 @@
             <f7-list-item :title="tt('No transaction data')"></f7-list-item>
         </f7-list>
 
-        <f7-block class="combination-list-wrapper"
-                  :class="{ 'margin-vertical': index > 0 || pageType === TransactionListPageType.Calendar.type || showSearchbar, 'margin-vertical-half': index === 0 && pageType !== TransactionListPageType.Calendar.type && !showSearchbar, 'no-accordion-toggle': pageType !== TransactionListPageType.List.type && pageType !== TransactionListPageType.Gallery.type }"
-                  :key="transactionMonthList.yearDashMonth" v-for="(transactionMonthList, index) in transactions">
+        <f7-list strong inset dividers media-list class="transaction-info-list margin-vertical"
+                 v-if="!loading && !noTransaction && query.amountSortOrder">
+            <f7-list-item swipeout chevron-center
+                          class="transaction-info"
+                          :id="getTransactionDomId(transaction)"
+                          :link="`/transaction/detail?id=${transaction.id}&type=${transaction.type}`"
+                          :key="transaction.id"
+                          v-for="transaction in flatTransactionItems"
+            >
+                <template #media>
+                    <div class="display-flex flex-direction-column transaction-date transaction-date-sorted">
+                        <span class="transaction-day width-100 flex-direction-column">
+                            {{ getDisplayYear(transaction) }}
+                        </span>
+                        <span class="transaction-day width-100 flex-direction-column">
+                            {{ getDisplayMonthDay(transaction) }}
+                        </span>
+                        <span class="transaction-day-of-week width-100 flex-direction-column" v-if="transaction.displayDayOfWeek">
+                            {{ getWeekdayShortName(transaction.displayDayOfWeek) }}
+                        </span>
+                    </div>
+                </template>
+                <template #inner>
+                    <div class="display-flex no-padding-horizontal">
+                        <div class="item-media">
+                            <div class="transaction-icon display-flex align-items-center">
+                                <ItemIcon :icon-type="getCategoryIconType(transaction.category.iconType)"
+                                          :icon-id="transaction.category.icon"
+                                          :color="transaction.category.color"
+                                          v-if="transaction.category && transaction.category.color"></ItemIcon>
+                                <f7-icon v-else-if="!transaction.category || !transaction.category.color"
+                                         f7="pencil_ellipsis_rectangle">
+                                </f7-icon>
+                            </div>
+                        </div>
+                        <div class="actual-item-inner">
+                            <div class="item-title-row">
+                                <div class="item-title">
+                                    <div class="transaction-category-name no-padding">
+                                        <span v-if="transaction.type === TransactionType.ModifyBalance">
+                                            {{ tt('Modify Balance') }}
+                                        </span>
+                                            <span v-else-if="transaction.type !== TransactionType.ModifyBalance && transaction.category">
+                                            {{ transaction.category.name }}
+                                        </span>
+                                            <span v-else-if="transaction.type !== TransactionType.ModifyBalance && !transaction.category">
+                                            {{ getTransactionTypeName(transaction.type, 'Transaction') }}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="item-after">
+                                    <div class="transaction-amount" v-if="transaction.sourceAccount"
+                                         :class="{ 'text-expense': transaction.type === TransactionType.Expense, 'text-income': transaction.type === TransactionType.Income }">
+                                        <span>{{ getDisplayAmount(transaction) }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="item-text">
+                                <div class="transaction-description" v-if="transaction.comment">
+                                    <span>{{ transaction.comment }}</span>
+                                </div>
+                            </div>
+                            <div class="item-footer">
+                                <div class="transaction-tags" v-if="showTagInTransactionListPage && transaction.tagIds && transaction.tagIds.length">
+                                    <f7-chip media-text-color="var(--f7-chip-text-color)" class="transaction-tag"
+                                             :text="allTransactionTags[tagId]?.name"
+                                             :key="tagId"
+                                             v-for="tagId in transaction.tagIds">
+                                        <template #media>
+                                            <f7-icon f7="number"></f7-icon>
+                                        </template>
+                                    </f7-chip>
+                                </div>
+                                <div class="transaction-footer">
+                                    <span>{{ getDisplayTime(transaction) }}</span>
+                                    <span v-if="!isSameAsDefaultTimezoneOffsetMinutes(transaction)">{{ `(${getDisplayTimezone(transaction)})` }}</span>
+                                    <span v-if="transaction.sourceAccount">·</span>
+                                    <span v-if="transaction.sourceAccount">{{ transaction.sourceAccount.name }}</span>
+                                    <f7-icon class="transaction-account-arrow icon-with-direction" f7="arrow_right" v-if="transaction.sourceAccount && transaction.type === TransactionType.Transfer && transaction.destinationAccount && transaction.sourceAccount.id !== transaction.destinationAccount.id"></f7-icon>
+                                    <span v-if="transaction.sourceAccount && transaction.type === TransactionType.Transfer && transaction.destinationAccount && transaction.sourceAccount.id !== transaction.destinationAccount.id">{{ transaction.destinationAccount.name }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                <f7-swipeout-actions :left="textDirection === TextDirection.RTL"
+                                     :right="textDirection === TextDirection.LTR">
+                    <f7-swipeout-button color="primary" close
+                                        :text="tt('Duplicate')"
+                                        v-if="transaction.type !== TransactionType.ModifyBalance"
+                                        @click="duplicate(transaction)"></f7-swipeout-button>
+                    <f7-swipeout-button color="orange" close
+                                        :text="tt('Edit')"
+                                        v-if="transaction.editable"
+                                        @click="edit(transaction)"></f7-swipeout-button>
+                    <f7-swipeout-button color="red" class="padding-horizontal"
+                                        :aria-label="tt('Delete')"
+                                        v-if="transaction.editable"
+                                        @click="remove(transaction, false)">
+                        <f7-icon f7="trash"></f7-icon>
+                    </f7-swipeout-button>
+                </f7-swipeout-actions>
+            </f7-list-item>
+        </f7-list>
+
+        <template v-for="(transactionMonthList, idx) in transactions" :key="idx">
+            <f7-block class="combination-list-wrapper"
+                      :class="{ 'margin-vertical': idx > 0 || pageType === TransactionListPageType.Calendar.type || showSearchbar, 'margin-vertical-half': idx === 0 && pageType !== TransactionListPageType.Calendar.type && !showSearchbar, 'no-accordion-toggle': pageType !== TransactionListPageType.List.type && pageType !== TransactionListPageType.Gallery.type }"
+                      v-if="!query.amountSortOrder">
             <f7-accordion-item :opened="transactionMonthList.opened"
                                @accordion:open="collapseTransactionMonthList(transactionMonthList, false)"
                                @accordion:opened="onTransactionMonthListCollapseStateChanged"
@@ -338,7 +444,8 @@
                     </f7-list>
                 </f7-accordion-content>
             </f7-accordion-item>
-        </f7-block>
+            </f7-block>
+        </template>
 
         <f7-block class="text-align-center" :class="{ 'disabled': loadingMore }" v-show="!loading && hasMoreTransaction"
                   v-if="pageType === TransactionListPageType.List.type || pageType === TransactionListPageType.Gallery.type">
@@ -552,6 +659,26 @@
                 </f7-list-item>
 
                 <f7-list-item group-title>
+                    <small>{{ tt('Sort') }}</small>
+                </f7-list-item>
+                <f7-list-item link="#" no-chevron popover-close
+                              :class="{ 'list-item-selected': query.amountSortOrder === AmountSortOrderType.AmountAscending.type }"
+                              :title="tt(AmountSortOrderType.AmountAscending.name)"
+                              @click="changeAmountSortOrder(AmountSortOrderType.AmountAscending.type)">
+                    <template #after>
+                        <f7-icon class="list-item-checked-icon" f7="checkmark_alt" v-if="query.amountSortOrder === AmountSortOrderType.AmountAscending.type"></f7-icon>
+                    </template>
+                </f7-list-item>
+                <f7-list-item link="#" no-chevron popover-close
+                              :class="{ 'list-item-selected': query.amountSortOrder === AmountSortOrderType.AmountDescending.type }"
+                              :title="tt(AmountSortOrderType.AmountDescending.name)"
+                              @click="changeAmountSortOrder(AmountSortOrderType.AmountDescending.type)">
+                    <template #after>
+                        <f7-icon class="list-item-checked-icon" f7="checkmark_alt" v-if="query.amountSortOrder === AmountSortOrderType.AmountDescending.type"></f7-icon>
+                    </template>
+                </f7-list-item>
+
+                <f7-list-item group-title>
                     <small>{{ tt('Amount') }}</small>
                 </f7-list-item>
                 <f7-list-item link="#" no-chevron popover-close
@@ -676,7 +803,7 @@ import {
     DateRangeScene,
     DateRange
 } from '@/core/datetime.ts';
-import { AmountFilterType } from '@/core/numeral.ts';
+import { AmountFilterType, AmountSortOrderType } from '@/core/numeral.ts';
 import { TransactionType } from '@/core/transaction.ts';
 import type { TransactionCategory } from '@/models/transaction_category.ts';
 import { type Transaction, TransactionTagFilter } from '@/models/transaction.ts';
@@ -690,6 +817,7 @@ import { BIG_DECIMAL_ZERO } from '@/lib/numeral.ts';
 import {
     getCurrentUnixTime,
     parseDateTimeFromUnixTime,
+    parseDateTimeFromUnixTimeWithTimezoneOffset,
     getDayFirstDateTimeBySpecifiedUnixTime,
     getYearMonthFirstUnixTime,
     getYearMonthLastUnixTime,
@@ -722,7 +850,8 @@ const {
     tt,
     getCurrentLanguageTextDirection,
     getWeekdayShortName,
-    formatNumberToLocalizedNumeralsWithoutDigitGrouping
+    formatNumberToLocalizedNumeralsWithoutDigitGrouping,
+    formatDateTimeToShortMonthDay
 } = useI18n();
 
 const { showAlert, showToast, routeBackOnError } = useI18nUIComponents();
@@ -835,6 +964,10 @@ const transactions = computed<TransactionMonthList[]>(() => {
                     incompleteIncome: false,
                     incompleteExpense: false
                 },
+                totalAmountByCurrency: {
+                    income: [],
+                    expense: []
+                },
                 dailyTotalAmounts: {}
             };
 
@@ -858,6 +991,32 @@ const noTransaction = computed<boolean>(() => {
 });
 
 const hasMoreTransaction = computed<boolean>(() => transactionsStore.hasMoreTransaction);
+
+const flatTransactionItems = computed<Transaction[]>(() => {
+    if (!transactions.value) {
+        return [];
+    }
+
+    const items: Transaction[] = [];
+
+    for (const monthList of transactions.value) {
+        for (const item of monthList.items) {
+            items.push(item);
+        }
+    }
+
+    return items;
+});
+
+function getDisplayYear(transaction: Transaction): string {
+    const dateTime = parseDateTimeFromUnixTimeWithTimezoneOffset(transaction.time, transaction.utcOffset);
+    return formatNumberToLocalizedNumeralsWithoutDigitGrouping(dateTime.getGregorianCalendarYear());
+}
+
+function getDisplayMonthDay(transaction: Transaction): string {
+    const dateTime = parseDateTimeFromUnixTimeWithTimezoneOffset(transaction.time, transaction.utcOffset);
+    return formatDateTimeToShortMonthDay(dateTime);
+}
 
 function getTransactionMonthTitleDomId(yearMonth: TextualYearMonth): string {
     return 'transaction_month_title_' + yearMonth;
@@ -1001,6 +1160,7 @@ function init(): void {
         categoryIds: initQuery['categoryIds'],
         accountIds: initQuery['accountIds'],
         tagFilter: initQuery['tagFilter'],
+        amountSortOrder: initQuery['amountSortOrder'] as string || undefined,
         keyword: initQuery['keyword'],
         matchMode: initQuery['matchMode'] && parseInt(initQuery['matchMode']) >= 0 ? parseInt(initQuery['matchMode']) : undefined
     });
@@ -1420,6 +1580,20 @@ function changeAmountFilter(filterType: string): void {
     }
 }
 
+function changeAmountSortOrder(sortOrder: string): void {
+    if (query.value.amountSortOrder === sortOrder) {
+        sortOrder = '';
+    }
+
+    const changed = transactionsStore.updateTransactionListFilter({
+        amountSortOrder: sortOrder
+    });
+
+    if (changed) {
+        reload();
+    }
+}
+
 function add(): void {
     const currentUnixTime = getCurrentUnixTime();
 
@@ -1591,6 +1765,15 @@ init();
 .list.transaction-info-list li.transaction-info .transaction-date {
     width: var(--ebk-transaction-date-width);
     margin-inline-end: 6px;
+}
+
+.list.transaction-info-list li.transaction-info .transaction-date-sorted {
+    width: calc(var(--ebk-transaction-date-width) + 22px);
+}
+
+.list.transaction-info-list li.transaction-info .transaction-date-sorted .transaction-day {
+    width: calc(var(--ebk-transaction-date-width) + 22px);
+    font-weight: normal;
 }
 
 .list.transaction-info-list li.transaction-info .transaction-day {
