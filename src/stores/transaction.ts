@@ -72,6 +72,7 @@ export interface TransactionListPartialFilter {
     accountIds?: string;
     tagFilter?: string;
     amountFilter?: string;
+    amountSortOrder?: string;
     keyword?: string;
     matchMode?: number;
 }
@@ -85,6 +86,7 @@ export interface TransactionListFilter extends TransactionListPartialFilter {
     accountIds: string;
     tagFilter: string;
     amountFilter: string;
+    amountSortOrder: string;
     keyword: string;
     matchMode: number;
 }
@@ -96,6 +98,17 @@ export interface TransactionTotalAmount {
     incompleteIncome: boolean;
 }
 
+export interface TransactionCurrencyAmount {
+    readonly currency: string;
+    amount: BigDecimal;
+    incomplete: boolean;
+}
+
+export interface TransactionTotalAmountByCurrency {
+    expense: TransactionCurrencyAmount[];
+    income: TransactionCurrencyAmount[];
+}
+
 export interface TransactionMonthList {
     readonly year: number;
     readonly month: number; // 1-based (1 = January, 12 = December)
@@ -103,6 +116,7 @@ export interface TransactionMonthList {
     opened: boolean;
     readonly items: Transaction[];
     readonly totalAmount: TransactionTotalAmount;
+    readonly totalAmountByCurrency: TransactionTotalAmountByCurrency;
     readonly dailyTotalAmounts: Record<string, TransactionTotalAmount>;
 }
 
@@ -127,12 +141,14 @@ export const useTransactionsStore = defineStore('transactions', () => {
         accountIds: '',
         tagFilter: '',
         amountFilter: '',
+        amountSortOrder: '',
         keyword: '',
         matchMode: KeywordMatchMode.Default.type
     });
 
     const transactions = ref<TransactionMonthList[]>([]);
     const transactionsNextTimeId = ref<number>(0);
+    const transactionsLoadPageNumber = ref<number>(1);
     const transactionListStateInvalid = ref<boolean>(true);
     const transactionReconciliationStatementStateInvalid = ref<boolean>(true);
 
@@ -241,6 +257,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
                             income: BIG_DECIMAL_ZERO,
                             incompleteIncome: true
                         },
+                        totalAmountByCurrency: {
+                            expense: [],
+                            income: []
+                        },
                         dailyTotalAmounts: {}
                     };
 
@@ -340,6 +360,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
         let hasUnCalculatedTotalExpense = false;
         let hasUnCalculatedTotalIncome = false;
         const dailyTotalAmounts: Record<string, TransactionTotalAmount> = {};
+        const totalAmountsByCurrency: TransactionTotalAmountByCurrency = {
+            expense: [],
+            income: []
+        };
 
         const allAccountIdsMap: Record<string, boolean> = {};
         let totalAccountIdsCount = 0;
@@ -383,6 +407,55 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 continue;
             }
 
+            const originalAmount = amount;
+            const originalCurrency = account.currency;
+            let transferAsExpense = false;
+            let transferAsIncome = false;
+
+            if (transaction.type === TransactionType.Expense || transaction.type === TransactionType.Income) {
+                addTransactionCurrencyTotalAmount({
+                    totalAmountsByCurrency,
+                    currency: originalCurrency,
+                    amount: originalAmount,
+                    type: transaction.type,
+                    incomplete: false,
+                    transferAsExpense: false,
+                    transferAsIncome: false
+                });
+            } else if (transaction.type === TransactionType.Transfer && totalAccountIdsCount > 0) {
+                if (allAccountIdsMap[transaction.sourceAccountId] && allAccountIdsMap[transaction.destinationAccountId]) {
+                    // Do Nothing
+                } else if (transaction.sourceAccount && transaction.destinationAccount && allAccountIdsMap[transaction.sourceAccount.parentId] && allAccountIdsMap[transaction.destinationAccount.parentId]) {
+                    // Do Nothing
+                } else if (transaction.sourceAccount && allAccountIdsMap[transaction.sourceAccount.parentId] && allAccountIdsMap[transaction.destinationAccountId]) {
+                    // Do Nothing
+                } else if (transaction.destinationAccount && allAccountIdsMap[transaction.sourceAccountId] && allAccountIdsMap[transaction.destinationAccount.parentId]) {
+                    // Do Nothing
+                } else if (allAccountIdsMap[transaction.sourceAccountId] || (transaction.sourceAccount && allAccountIdsMap[transaction.sourceAccount.parentId])) {
+                    transferAsExpense = true;
+                    addTransactionCurrencyTotalAmount({
+                        totalAmountsByCurrency,
+                        currency: originalCurrency,
+                        amount: originalAmount,
+                        type: TransactionType.Expense,
+                        incomplete: false,
+                        transferAsExpense: false,
+                        transferAsIncome: false
+                    });
+                } else if (allAccountIdsMap[transaction.destinationAccountId] || (transaction.destinationAccount && allAccountIdsMap[transaction.destinationAccount.parentId])) {
+                    transferAsIncome = true;
+                    addTransactionCurrencyTotalAmount({
+                        totalAmountsByCurrency,
+                        currency: originalCurrency,
+                        amount: originalAmount,
+                        type: TransactionType.Income,
+                        incomplete: false,
+                        transferAsExpense: false,
+                        transferAsIncome: false
+                    });
+                }
+            }
+
             if (account.currency !== defaultCurrency) {
                 const balance = exchangeRatesStore.getExchangedAmount(amount, account.currency, defaultCurrency);
 
@@ -390,7 +463,15 @@ export const useTransactionsStore = defineStore('transactions', () => {
                     if (transaction.type === TransactionType.Expense) {
                         hasUnCalculatedTotalExpense = true;
                         dailyTotalAmount.incompleteExpense = true;
+                        setTransactionCurrencyTotalAmountIncomplete(totalAmountsByCurrency.expense, account.currency);
                     } else if (transaction.type === TransactionType.Income) {
+                        hasUnCalculatedTotalIncome = true;
+                        dailyTotalAmount.incompleteIncome = true;
+                        setTransactionCurrencyTotalAmountIncomplete(totalAmountsByCurrency.income, account.currency);
+                    } else if (transaction.type === TransactionType.Transfer && transferAsExpense) {
+                        hasUnCalculatedTotalExpense = true;
+                        dailyTotalAmount.incompleteExpense = true;
+                    } else if (transaction.type === TransactionType.Transfer && transferAsIncome) {
                         hasUnCalculatedTotalIncome = true;
                         dailyTotalAmount.incompleteIncome = true;
                     }
@@ -407,22 +488,12 @@ export const useTransactionsStore = defineStore('transactions', () => {
             } else if (transaction.type === TransactionType.Income) {
                 totalIncome = totalIncome.add(amount);
                 dailyTotalAmount.income = dailyTotalAmount.income.add(amount);
-            } else if (transaction.type === TransactionType.Transfer && totalAccountIdsCount > 0) {
-                if (allAccountIdsMap[transaction.sourceAccountId] && allAccountIdsMap[transaction.destinationAccountId]) {
-                    // Do Nothing
-                } else if (transaction.sourceAccount && transaction.destinationAccount && allAccountIdsMap[transaction.sourceAccount.parentId] && allAccountIdsMap[transaction.destinationAccount.parentId]) {
-                    // Do Nothing
-                } else if (transaction.sourceAccount && allAccountIdsMap[transaction.sourceAccount.parentId] && allAccountIdsMap[transaction.destinationAccountId]) {
-                    // Do Nothing
-                } else if (transaction.destinationAccount && allAccountIdsMap[transaction.sourceAccountId] && allAccountIdsMap[transaction.destinationAccount.parentId]) {
-                    // Do Nothing
-                } else if (allAccountIdsMap[transaction.sourceAccountId] || (transaction.sourceAccount && allAccountIdsMap[transaction.sourceAccount.parentId])) {
-                    totalExpense = totalExpense.add(amount);
-                    dailyTotalAmount.expense = dailyTotalAmount.expense.add(amount);
-                } else if (allAccountIdsMap[transaction.destinationAccountId] || (transaction.destinationAccount && allAccountIdsMap[transaction.destinationAccount.parentId])) {
-                    totalIncome = totalIncome.add(amount);
-                    dailyTotalAmount.income = dailyTotalAmount.income.add(amount);
-                }
+            } else if (transaction.type === TransactionType.Transfer && transferAsExpense) {
+                totalExpense = totalExpense.add(amount);
+                dailyTotalAmount.expense = dailyTotalAmount.expense.add(amount);
+            } else if (transaction.type === TransactionType.Transfer && transferAsIncome) {
+                totalIncome = totalIncome.add(amount);
+                dailyTotalAmount.income = dailyTotalAmount.income.add(amount);
             }
         }
 
@@ -430,6 +501,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
         transactionMonthList.totalAmount.incompleteExpense = incomplete || hasUnCalculatedTotalExpense;
         transactionMonthList.totalAmount.income = totalIncome.truncate();
         transactionMonthList.totalAmount.incompleteIncome = incomplete || hasUnCalculatedTotalIncome;
+        replaceTransactionCurrencyTotalAmounts(transactionMonthList.totalAmountByCurrency, totalAmountsByCurrency, incomplete);
 
         for (const day of keys(transactionMonthList.dailyTotalAmounts)) {
             delete transactionMonthList.dailyTotalAmounts[day];
@@ -443,6 +515,66 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 incompleteIncome: incomplete || dailyTotalAmount.incompleteIncome
             };
         }
+    }
+
+    function addTransactionCurrencyTotalAmount({ totalAmountsByCurrency, currency, amount, type, incomplete, transferAsExpense, transferAsIncome }: { totalAmountsByCurrency: TransactionTotalAmountByCurrency, currency: string, amount: BigDecimal, type: number, incomplete: boolean, transferAsExpense: boolean, transferAsIncome: boolean }): void {
+        if (type === TransactionType.Expense) {
+            addCurrencyAmountItem(totalAmountsByCurrency.expense, currency, amount, incomplete);
+        } else if (type === TransactionType.Income) {
+            addCurrencyAmountItem(totalAmountsByCurrency.income, currency, amount, incomplete);
+        } else if (type === TransactionType.Transfer) {
+            if (transferAsExpense) {
+                addCurrencyAmountItem(totalAmountsByCurrency.expense, currency, amount, incomplete);
+            } else if (transferAsIncome) {
+                addCurrencyAmountItem(totalAmountsByCurrency.income, currency, amount, incomplete);
+            }
+        }
+    }
+
+    function addCurrencyAmountItem(items: TransactionCurrencyAmount[], currency: string, amount: BigDecimal, incomplete: boolean): void {
+        let item = items.find(item => item.currency === currency);
+
+        if (!item) {
+            item = {
+                currency,
+                amount: BIG_DECIMAL_ZERO,
+                incomplete: false
+            };
+            items.push(item);
+        }
+
+        item.amount = item.amount.add(amount);
+        item.incomplete = item.incomplete || incomplete;
+    }
+
+    function setTransactionCurrencyTotalAmountIncomplete(items: TransactionCurrencyAmount[], currency: string): void {
+        let item = items.find(item => item.currency === currency);
+
+        if (!item) {
+            item = {
+                currency,
+                amount: BIG_DECIMAL_ZERO,
+                incomplete: true
+            };
+            items.push(item);
+        }
+
+        item.incomplete = true;
+    }
+
+    function replaceTransactionCurrencyTotalAmounts(target: TransactionTotalAmountByCurrency, source: TransactionTotalAmountByCurrency, incomplete: boolean): void {
+        for (const currency of ['expense', 'income'] as const) {
+            for (const item of source[currency]) {
+                if (incomplete) {
+                    item.incomplete = true;
+                }
+
+                item.amount = item.amount.truncate();
+            }
+        }
+
+        target.expense.splice(0, target.expense.length, ...source.expense);
+        target.income.splice(0, target.income.length, ...source.income);
     }
 
     function fillTransactionObject(transaction: Transaction): Transaction {
@@ -576,6 +708,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 income: BIG_DECIMAL_ZERO,
                 incompleteIncome: true
             },
+            totalAmountByCurrency: {
+                income: [],
+                expense: []
+            },
             dailyTotalAmounts: {}
         };
 
@@ -673,10 +809,12 @@ export const useTransactionsStore = defineStore('transactions', () => {
         transactionsFilter.value.accountIds = '';
         transactionsFilter.value.tagFilter = '';
         transactionsFilter.value.amountFilter = '';
+        transactionsFilter.value.amountSortOrder = '';
         transactionsFilter.value.keyword = '';
         transactionsFilter.value.matchMode = KeywordMatchMode.Default.type;
         transactions.value = [];
         transactionsNextTimeId.value = 0;
+        transactionsLoadPageNumber.value = 1;
         transactionListStateInvalid.value = true;
         transactionReconciliationStatementStateInvalid.value = true;
     }
@@ -684,6 +822,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
     function clearTransactions(): void {
         transactions.value = [];
         transactionsNextTimeId.value = 0;
+        transactionsLoadPageNumber.value = 1;
         transactionListStateInvalid.value = true;
     }
 
@@ -734,6 +873,12 @@ export const useTransactionsStore = defineStore('transactions', () => {
             transactionsFilter.value.amountFilter = filter.amountFilter;
         } else {
             transactionsFilter.value.amountFilter = '';
+        }
+
+        if (filter && isString(filter.amountSortOrder)) {
+            transactionsFilter.value.amountSortOrder = filter.amountSortOrder;
+        } else {
+            transactionsFilter.value.amountSortOrder = '';
         }
 
         if (filter && isString(filter.keyword)) {
@@ -800,6 +945,11 @@ export const useTransactionsStore = defineStore('transactions', () => {
             changed = true;
         }
 
+        if (filter && isString(filter.amountSortOrder) && transactionsFilter.value.amountSortOrder !== filter.amountSortOrder) {
+            transactionsFilter.value.amountSortOrder = filter.amountSortOrder;
+            changed = true;
+        }
+
         if (filter && isString(filter.keyword) && transactionsFilter.value.keyword !== filter.keyword) {
             transactionsFilter.value.keyword = filter.keyword;
             changed = true;
@@ -847,6 +997,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
             querys.push('amountFilter=' + encodeURIComponent(transactionsFilter.value.amountFilter));
         }
 
+        if (transactionsFilter.value.amountSortOrder) {
+            querys.push('amountSortOrder=' + transactionsFilter.value.amountSortOrder);
+        }
+
         if (transactionsFilter.value.keyword) {
             querys.push('keyword=' + encodeURIComponent(transactionsFilter.value.keyword));
             querys.push('matchMode=' + transactionsFilter.value.matchMode);
@@ -870,20 +1024,38 @@ export const useTransactionsStore = defineStore('transactions', () => {
     }
 
     function loadTransactions({ reload, count, page, mustHavePictures, withCount, withPictures, autoExpand, defaultCurrency }: { reload?: boolean, count?: number, page?: number, mustHavePictures?: boolean, withCount?: boolean, withPictures?: boolean, autoExpand: boolean, defaultCurrency: string }): Promise<TransactionPageWrapper> {
-        let actualMaxTime = transactionsNextTimeId.value;
+        let actualMaxTime: number;
 
-        if (reload && transactionsFilter.value.maxTime > 0) {
-            actualMaxTime = transactionsFilter.value.maxTime * 1000 + 999;
-        } else if (reload && transactionsFilter.value.maxTime <= 0) {
-            actualMaxTime = 0;
+        if (transactionsFilter.value.amountSortOrder) {
+            // When sorting by amount, use page-based pagination instead of time-based cursor,
+            // because the time cursor does not work correctly with amount sort order
+            if (reload) {
+                transactionsLoadPageNumber.value = 1;
+            }
+
+            if (transactionsFilter.value.maxTime > 0) {
+                actualMaxTime = transactionsFilter.value.maxTime * 1000 + 999;
+            } else {
+                actualMaxTime = 0;
+            }
+        } else {
+            actualMaxTime = transactionsNextTimeId.value;
+
+            if (reload && transactionsFilter.value.maxTime > 0) {
+                actualMaxTime = transactionsFilter.value.maxTime * 1000 + 999;
+            } else if (reload && transactionsFilter.value.maxTime <= 0) {
+                actualMaxTime = 0;
+            }
         }
+
+        const actualPage = page || (transactionsFilter.value.amountSortOrder ? transactionsLoadPageNumber.value : 1);
 
         return new Promise((resolve, reject) => {
             services.getTransactions({
                 maxTime: actualMaxTime,
                 minTime: transactionsFilter.value.minTime * 1000,
                 count: count || 50,
-                page: page || 1,
+                page: actualPage,
                 withCount: !!withCount,
                 withPictures: !!withPictures,
                 mustHavePictures: !!mustHavePictures,
@@ -892,6 +1064,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 accountIds: transactionsFilter.value.accountIds,
                 tagFilter: transactionsFilter.value.tagFilter,
                 amountFilter: transactionsFilter.value.amountFilter,
+                amountSortOrder: transactionsFilter.value.amountSortOrder,
                 keyword: transactionsFilter.value.keyword,
                 matchMode: transactionsFilter.value.matchMode
             }).then(response => {
@@ -927,6 +1100,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
                     defaultCurrency: defaultCurrency,
                     nextTimeSequenceId: data.result.nextTimeSequenceId
                 });
+
+                if (!reload && transactionsFilter.value.amountSortOrder) {
+                    transactionsLoadPageNumber.value++;
+                }
 
                 if (reload) {
                     if (transactionListStateInvalid.value) {
@@ -972,6 +1149,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
                 accountIds: transactionsFilter.value.accountIds,
                 tagFilter: transactionsFilter.value.tagFilter,
                 amountFilter: transactionsFilter.value.amountFilter,
+                amountSortOrder: transactionsFilter.value.amountSortOrder,
                 keyword: transactionsFilter.value.keyword,
                 matchMode: transactionsFilter.value.matchMode,
                 mustHavePictures: !!mustHavePictures,
@@ -1713,6 +1891,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
         transactionsFilter,
         transactions,
         transactionsNextTimeId,
+        transactionsLoadPageNumber,
         transactionListStateInvalid,
         transactionReconciliationStatementStateInvalid,
         // computed states
@@ -1765,3 +1944,68 @@ export const useTransactionsStore = defineStore('transactions', () => {
         collapseMonthInTransactionList
     };
 });
+
+export function calculateCurrencyTotalAmounts(
+    transactions: Transaction[],
+    accountIds: string,
+    defaultCurrency: string
+): { income: TransactionCurrencyAmount[]; expense: TransactionCurrencyAmount[] } {
+    const incomeItems: TransactionCurrencyAmount[] = [];
+    const expenseItems: TransactionCurrencyAmount[] = [];
+    const selectedAccountIds = new Set<string>();
+
+    if (accountIds) {
+        for (const accountId of accountIds.split(',')) {
+            if (accountId) {
+                selectedAccountIds.add(accountId);
+            }
+        }
+    }
+
+    for (const transaction of transactions) {
+        let amount = parseBigDecimal(transaction.sourceAmount);
+        let currency = transaction.sourceAccount?.currency || defaultCurrency;
+
+        if (selectedAccountIds.size > 0 && transaction.destinationAccount
+            && !selectedAccountIds.has(transaction.sourceAccount?.id || '')
+            && !selectedAccountIds.has(transaction.sourceAccount?.parentId || '')
+            && (selectedAccountIds.has(transaction.destinationAccount.id) || selectedAccountIds.has(transaction.destinationAccount.parentId))) {
+            amount = parseBigDecimal(transaction.destinationAmount);
+            currency = transaction.destinationAccount.currency;
+        }
+
+        if (transaction.type === TransactionType.Expense) {
+            appendCurrencyTotalAmountItem(expenseItems, currency, amount);
+        } else if (transaction.type === TransactionType.Income) {
+            appendCurrencyTotalAmountItem(incomeItems, currency, amount);
+        } else if (transaction.type === TransactionType.Transfer && selectedAccountIds.size > 0) {
+            const sourceMatched = selectedAccountIds.has(transaction.sourceAccountId) || selectedAccountIds.has(transaction.sourceAccount?.parentId || '');
+            const destinationMatched = selectedAccountIds.has(transaction.destinationAccountId) || selectedAccountIds.has(transaction.destinationAccount?.parentId || '');
+
+            if (sourceMatched && !destinationMatched) {
+                appendCurrencyTotalAmountItem(expenseItems, currency, amount);
+            } else if (!sourceMatched && destinationMatched) {
+                appendCurrencyTotalAmountItem(incomeItems, currency, amount);
+            }
+        }
+    }
+
+    return {
+        income: incomeItems,
+        expense: expenseItems
+    };
+}
+
+function appendCurrencyTotalAmountItem(items: TransactionCurrencyAmount[], currency: string, amount: BigDecimal): void {
+    const existingItem = items.find(item => item.currency === currency);
+
+    if (existingItem) {
+        existingItem.amount = existingItem.amount.add(amount);
+    } else {
+        items.push({
+            currency,
+            amount,
+            incomplete: false
+        });
+    }
+}

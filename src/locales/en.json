@@ -1682,6 +1682,8 @@
     "Not equal to": "Not equal to",
     "Between": "Between",
     "Not between": "Not between",
+    "Amount (Ascending)": "Amount (Ascending)",
+    "Amount (Descending)": "Amount (Descending)",
     "Is": "Is",
     "In": "In",
     "Not in": "Not in",
