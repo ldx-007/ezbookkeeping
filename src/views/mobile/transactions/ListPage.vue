@@ -933,7 +933,7 @@ function getDisplayCurrencyTotalAmounts(items: TransactionCurrencyAmount[], symb
 
     displayItems.sort((item1, item2) => item1.currency < item2.currency ? -1 : 1);
 
-    return displayItems.map(item => getDisplayMonthTotalAmount(item.amount, item.currency, symbol, item.incomplete)).join(' / ');
+    return displayItems.map((item, index) => getDisplayMonthTotalAmount(item.amount, item.currency, index === 0 ? symbol : '', item.incomplete)).join('/');
 }
 
 const environmentsStore = useEnvironmentsStore();
